@@ -3,6 +3,8 @@
 
 #include <array>
 #include <functional>
+#include <QAbstractListModel>
+#include <QConcatenateTablesProxyModel>
 #include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QHash>
@@ -109,6 +111,68 @@ std::vector<QPixmap> AvatarsFor(const std::vector<Common::UUID>& uuids, int size
     }
     return out;
 }
+
+// Row role marking the trailing "All Software" tile. A high UserRole the game-list model never
+// returns, so real game rows read it as an empty variant (false).
+constexpr int kAllSoftwareRole = Qt::UserRole + 777;
+
+// One-row model holding the Nintendo-style round "All Software" tile. Concatenated after the library
+// filter (see the rail setup) so it is always the last cell of the game row; selecting it opens the
+// full-library grid.
+class AllSoftwareModel : public QAbstractListModel {
+public:
+    explicit AllSoftwareModel(QObject* parent = nullptr) : QAbstractListModel(parent) {
+        icon = RenderIcon();
+    }
+    int rowCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : 1;
+    }
+    // Match the game-list model's column count so QConcatenateTablesProxyModel lines the two up.
+    int columnCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : GameListModel::COLUMN_COUNT;
+    }
+    QVariant data(const QModelIndex& index, int role) const override {
+        if (!index.isValid() || index.row() != 0 || index.column() != 0) {
+            return {};
+        }
+        switch (role) {
+        case kAllSoftwareRole:
+            return true;
+        case Qt::DecorationRole:
+            return icon;
+        case Qt::DisplayRole:
+            return QAbstractListModel::tr("All Software");
+        default:
+            return {};
+        }
+    }
+
+private:
+    // A circular button with a 3x3 grid of rounded squares — the Switch's "all software" glyph.
+    static QPixmap RenderIcon() {
+        const int s = DeckTheme::kGridCardWidth; // square, matches box-art tiles
+        QPixmap pm(s, s);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(DeckTheme::kSurface);
+        p.drawEllipse(QRectF(0, 0, s, s));
+        const qreal cell = s * 0.15;
+        const qreal gap = s * 0.075;
+        const qreal grid = cell * 3 + gap * 2;
+        const qreal o = (s - grid) / 2.0;
+        p.setBrush(DeckTheme::kTextDim);
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                p.drawRoundedRect(QRectF(o + c * (cell + gap), o + r * (cell + gap), cell, cell),
+                                  cell * 0.3, cell * 0.3);
+            }
+        }
+        return pm;
+    }
+    QPixmap icon;
+};
 
 /// The Deck's battery charge as a "NN%" string for the Switch-style status cluster, or empty when no
 /// battery is present (e.g. desktop testing). Read straight from sysfs so it needs no extra deps.
@@ -473,8 +537,16 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     filter->setSourceModel(model);
     filter->sort(0); // recently/most-played first, then the rest by title
 
+    // The rail shows the games (filter) followed by a trailing round "All Software" tile that opens
+    // the full-library grid — concatenated so it is always the last cell of the row, Switch-style.
+    // QConcatenateTablesProxyModel preserves row order, so game row N maps 1:1 to filter row N.
+    auto* concat = new QConcatenateTablesProxyModel(this);
+    concat->addSourceModel(filter);
+    concat->addSourceModel(new AllSoftwareModel(this));
+    rail_model = concat;
+
     rail = new QListView(this);
-    rail->setModel(filter);
+    rail->setModel(rail_model);
     delegate = new DeckGameDelegate(rail);
     rail->setItemDelegate(delegate);
     rail->setViewMode(QListView::IconMode);
@@ -587,19 +659,19 @@ bool DeckGamesPage::IsEmpty() const {
 
 QModelIndex DeckGamesPage::CurrentGameIndex() const {
     QModelIndex index = rail->currentIndex();
-    if (!index.isValid() && filter->rowCount() > 0) {
-        index = filter->index(0, 0);
+    if (!index.isValid() && rail_model->rowCount() > 0) {
+        index = rail_model->index(0, 0);
     }
     return index;
 }
 
 void DeckGamesPage::MoveRail(int delta) {
-    const int n = filter->rowCount();
+    const int n = rail_model->rowCount(); // games + the trailing All Software tile
     if (n == 0) {
         return;
     }
     const int cur = rail->currentIndex().isValid() ? rail->currentIndex().row() : 0;
-    const QModelIndex idx = filter->index(qBound(0, cur + delta, n - 1), 0);
+    const QModelIndex idx = rail_model->index(qBound(0, cur + delta, n - 1), 0);
     rail->setCurrentIndex(idx);
     // Single-row rail: keep the selected tile centred so the list scrolls left as you move right,
     // always leaving partial tiles peeking on both edges (the Switch's "scrolling a list" feel). The
@@ -659,7 +731,7 @@ void DeckGamesPage::SetZone(Zone new_zone) {
         avatar->SetHighlight(0);
     }
     if (zone == Zone::Rail && !rail->currentIndex().isValid() && filter->rowCount() > 0) {
-        rail->setCurrentIndex(filter->index(0, 0));
+        rail->setCurrentIndex(rail_model->index(0, 0));
     }
     UpdateGameTitle();
     emit HintsChanged();
@@ -780,6 +852,8 @@ bool DeckGamesPage::OnAccept() {
         emit OpenUsers(focus); // A on an avatar opens that specific user's My Page
     } else if (zone == Zone::Dock) {
         ActivateDock();
+    } else if (rail->currentIndex().data(kAllSoftwareRole).toBool()) {
+        SetGridMode(!grid_mode); // A on the trailing All Software tile opens/closes the full library
     } else {
         PlayCurrentGame(); // A boots the game straight away
     }
