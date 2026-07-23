@@ -214,7 +214,7 @@ void Controller::Execute() {
 
         is_single_mode = parameters.enable_single_mode;
 
-        LOG_DEBUG(Service_HID,
+        LOG_INFO(Service_HID,
                   "Controller Parameters: min_players={}, max_players={}, "
                   "keep_controllers_connected={}, enable_single_mode={}, enable_border_color={}, "
                   "enable_explain_text={}, allow_pro_controller={}, allow_handheld={}, "

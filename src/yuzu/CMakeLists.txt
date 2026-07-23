@@ -160,6 +160,19 @@ add_executable(yuzu
     game/game_card.h game/game_card.cpp
     game/search_field.h game/search_field.cpp
 
+    deck/deck_navigator.cpp deck/deck_navigator.h
+    deck/deck_theme.cpp deck/deck_theme.h
+    deck/deck_hint_bar.cpp deck/deck_hint_bar.h
+    deck/deck_game_delegate.cpp deck/deck_game_delegate.h
+    deck/deck_page.h
+    deck/deck_setting_row.cpp deck/deck_setting_row.h
+    deck/deck_games_page.cpp deck/deck_games_page.h
+    deck/deck_game_detail_page.cpp deck/deck_game_detail_page.h
+    deck/deck_controllers_page.cpp deck/deck_controllers_page.h
+    deck/deck_settings_page.cpp deck/deck_settings_page.h
+    deck/deck_users_page.cpp deck/deck_users_page.h
+    deck/deck_shell.cpp deck/deck_shell.h
+
     hotkeys.cpp
     hotkeys.h
     install_dialog.cpp
@@ -217,6 +230,7 @@ add_executable(yuzu
     user_data_migration.h user_data_migration.cpp
 
     yuzu.qrc
+    deck/deck.qrc
     yuzu.rc
     migration_dialog.h migration_dialog.cpp
     migration_worker.h migration_worker.cpp
