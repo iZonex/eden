@@ -1195,6 +1195,7 @@ void MainWindow::InitializeWidgets() {
             // Switching to a different title: close the suspended one first (like the Switch does).
             // Unpause so the emu thread processes the shutdown cleanly, then tear it down.
             game_suspended = false;
+            deck_shell->SetSuspendedGame(0);
             if (QtCommon::emu_thread != nullptr && !QtCommon::emu_thread->IsRunning()) {
                 QtCommon::emu_thread->SetRunning(true);
             }
@@ -3437,6 +3438,7 @@ void MainWindow::SuspendGameToBigPicture() {
     if (Common::IsSteamDeck()) {
         deck_reconcile_timer.start();
     }
+    deck_shell->SetSuspendedGame(suspended_program_id); // badge the suspended title's tile
     deck_shell->show();
     deck_shell->raise();
     deck_shell->Activate();
@@ -3447,6 +3449,7 @@ void MainWindow::ResumeSuspendedGame() {
         return;
     }
     game_suspended = false;
+    deck_shell->SetSuspendedGame(0); // no longer suspended — clear the tile badge
     // Hand the window back to the render view and stop reconciling (never remap mid-game).
     deck_shell->Deactivate();
     deck_shell->hide();

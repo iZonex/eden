@@ -285,6 +285,12 @@ void DeckShell::Deactivate() {
     }
 }
 
+void DeckShell::SetSuspendedGame(u64 program_id) {
+    if (games_page != nullptr) {
+        games_page->SetSuspendedGame(program_id);
+    }
+}
+
 void DeckShell::ConnectNavigator() {
     connect(navigator, &DeckNavigator::Navigate, this,
             [this](Qt::Key key) { HandleNavigate(key); });

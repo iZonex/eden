@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QPainterPath>
 
+#include "qt_common/game_list/game_list_p.h"
 #include "yuzu/deck/deck_game_delegate.h"
 #include "yuzu/deck/deck_theme.h"
 
@@ -113,6 +114,27 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         edge.setAlpha(20);
         painter->setPen(QPen(edge, 1));
         painter->drawPath(clip);
+    }
+
+    // A title suspended to the HOME menu (paused in memory) wears a small blue "paused" badge at the
+    // top-right of its art, so the user can see at a glance which game will resume.
+    if (suspended_id != 0 &&
+        index.data(GameListItemPath::ProgramIdRole).toULongLong() == suspended_id) {
+        const qreal d = art_rect.width() / 4.5;
+        const QRectF badge(art_rect.right() - d - 10, art_rect.top() + 10, d, d);
+        painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 2));
+        painter->setBrush(QColor(0x2f, 0x9e, 0xe0)); // Switch blue
+        painter->drawEllipse(badge);
+        // Two pause bars.
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(0xff, 0xff, 0xff));
+        const qreal bw = badge.width() * 0.13;
+        const qreal bh = badge.height() * 0.42;
+        const qreal cx = badge.center().x();
+        const qreal cy = badge.center().y();
+        const qreal g = bw * 0.9;
+        painter->drawRoundedRect(QRectF(cx - g - bw, cy - bh / 2, bw, bh), bw * 0.4, bw * 0.4);
+        painter->drawRoundedRect(QRectF(cx + g, cy - bh / 2, bw, bh), bw * 0.4, bw * 0.4);
     }
 
     // No per-tile title or favourite badge: the Switch shows only the selected game's name, above the
