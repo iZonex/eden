@@ -1180,7 +1180,23 @@ void MainWindow::InitializeWidgets() {
                                *QtCommon::system, *input_subsystem, this);
     ui->horizontalLayout->addWidget(deck_shell);
     deck_shell->setVisible(false);
-    connect(deck_shell, &DeckShell::GameChosen, this, &MainWindow::OnGameListLoadFile);
+    connect(deck_shell, &DeckShell::GameChosen, this, [this](QString path, u64 program_id) {
+        if (game_suspended &&
+            (path == suspended_game_path || program_id == suspended_program_id)) {
+            ResumeSuspendedGame(); // same title — continue where it was paused (Switch HOME)
+            return;
+        }
+        if (game_suspended) {
+            // Switching to a different title: close the suspended one first (like the Switch does).
+            // Unpause so the emu thread processes the shutdown cleanly, then tear it down.
+            game_suspended = false;
+            if (QtCommon::emu_thread != nullptr && !QtCommon::emu_thread->IsRunning()) {
+                QtCommon::emu_thread->SetRunning(true);
+            }
+            ShutdownGame();
+        }
+        OnGameListLoadFile(path, program_id);
+    });
     // Console power-off always quits the app — the old desktop UI is never shown from the console
     // front-end (on a Deck this returns to Steam). The desktop UI remains reachable only by
     // launching with Big Picture disabled.
@@ -3370,6 +3386,44 @@ void MainWindow::OnPauseContinueGame() {
     }
 }
 
+void MainWindow::SuspendGameToBigPicture() {
+    // Only meaningful for a title launched from the console shell; otherwise fall back to closing.
+    if (!emulation_running || !big_picture_active || QtCommon::emu_thread == nullptr) {
+        OnStopGame();
+        return;
+    }
+    if (game_suspended) {
+        return; // already on the HOME overlay
+    }
+    // Nintendo-Switch HOME: pause the title (kept in memory) and raise the library over it, instead
+    // of shutting it down. The user resumes by choosing the same title again.
+    if (QtCommon::emu_thread->IsRunning()) {
+        OnPauseGame();
+    }
+    suspended_program_id = QtCommon::system->GetApplicationProcessProgramID();
+    suspended_game_path = current_game_path;
+    game_suspended = true;
+    // Controllers recover in the menu (reconcile is stopped while a game runs).
+    if (Common::IsSteamDeck()) {
+        deck_reconcile_timer.start();
+    }
+    deck_shell->show();
+    deck_shell->raise();
+    deck_shell->Activate();
+}
+
+void MainWindow::ResumeSuspendedGame() {
+    if (!game_suspended) {
+        return;
+    }
+    game_suspended = false;
+    // Hand the window back to the render view and stop reconciling (never remap mid-game).
+    deck_shell->Deactivate();
+    deck_shell->hide();
+    deck_reconcile_timer.stop();
+    OnStartGame(); // SetRunning(true) — continue exactly where the title was paused
+}
+
 void MainWindow::OnStopGame() {
     if (ConfirmShutdownGame()) {
         play_time_manager->Stop();
@@ -4440,11 +4494,12 @@ void MainWindow::UpdateStatusBar() {
     // (Steam Deck controller reconciliation runs on its own always-on timer — see the ctor — so
     // dropped pads recover in the menu as well as in-game.)
 
-    // Steam Deck: Nintendo-Switch-style close-game — hold Select+Start ~1s to quit back
-    // to the game list. Deferred via a queued call so we never run a dialog from inside
-    // this timer slot (the same pattern the controller hotkeys use).
+    // Steam Deck: Nintendo-Switch HOME — hold Select+Start ~1s to suspend the title and drop back
+    // to the console library (the game stays paused in memory; picking it again resumes). Deferred
+    // via a queued call so we never run a dialog from inside this timer slot (the same pattern the
+    // controller hotkeys use).
     if (FrontendCommon::ShouldExitGameOnHotkeyHold(QtCommon::system->HIDCore())) {
-        QMetaObject::invokeMethod(this, [this] { OnStopGame(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this] { SuspendGameToBigPicture(); }, Qt::QueuedConnection);
     }
 
     if (Settings::values.tas_enable)

@@ -341,6 +341,10 @@ private:
 
 private slots:
     void OnStartGame();
+    // Nintendo-Switch HOME: from the console shell, the exit gesture pauses the running title and
+    // raises the library over it instead of tearing it down; picking the same title resumes it.
+    void SuspendGameToBigPicture();
+    void ResumeSuspendedGame();
     void OnRestartGame();
     void OnPauseGame();
     void OnPauseContinueGame();
@@ -506,6 +510,9 @@ private:
     DeckShell* deck_shell = nullptr;
     // True while the Big Picture / Steam Deck console front-end is the active UI.
     bool big_picture_active = false;
+    bool game_suspended = false;  ///< a title is paused-in-memory behind the console shell (HOME)
+    u64 suspended_program_id = 0; ///< which title is suspended, so picking it resumes vs reboots
+    QString suspended_game_path;  ///< path of the suspended title (robust resume match vs program id)
     QAction* big_picture_action = nullptr;
     LoadingScreen* loading_screen = nullptr;
     QTimer shutdown_timer;
