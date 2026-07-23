@@ -10,5 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
     <file alias="settings">icons/settings.svg</file>
     <file alias="power">icons/power.svg</file>
     <file alias="search">icons/search.svg</file>
+    <file alias="album">icons/album.svg</file>
+    <file alias="sleep">icons/sleep.svg</file>
   </qresource>
 </RCC>
