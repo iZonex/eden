@@ -519,7 +519,15 @@ Result NPadResource::AcquireNpadStyleSetUpdateEventHandle(Kernel::KernelCore& ke
         controller_state.style_set_update_event =
             service_context.CreateEvent("NpadResource:StylesetUpdateEvent");
 
-        // Assume creating the event succeeds otherwise crash the system here
+        // The kernel event budget can be exhausted (e.g. a game that repeatedly re-launches the
+        // controller-support applet). Fail gracefully instead of leaving a null event: dereferencing
+        // it below would hand a corrupt handle to the guest and crash in KHandleTable::Add.
+        if (controller_state.style_set_update_event == nullptr) {
+            LOG_ERROR(Service_HID,
+                      "Failed to create NpadResource styleset update event (out of kernel events)");
+            return ResultNpadNotConnected;
+        }
+
         controller_state.is_styleset_update_event_initialized = true;
     }
 

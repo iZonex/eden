@@ -167,6 +167,10 @@ public:
     /// Signals SDL driver for new input events
     void PumpEvents() const;
 
+    /// Forces SDL to re-scan connected controllers. Workaround for controllers,
+    /// such as sleeping Bluetooth pads, that SDL fails to re-detect on reconnect.
+    void RescanSDLDevices() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

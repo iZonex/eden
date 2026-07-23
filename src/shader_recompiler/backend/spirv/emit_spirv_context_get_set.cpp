@@ -587,13 +587,15 @@ Id EmitIsHelperInvocation(EmitContext& ctx) {
 }
 
 Id EmitSR_WScaleFactorXY(EmitContext& ctx) {
-    LOG_WARNING(Shader, "(STUBBED) called");
-    return ctx.Const(0x00ff0000u);
+    // Additive NV_clip_space_w_scaling coefficients (w' = xcoeff*x + ycoeff*y + w). The feature is
+    // never enabled on Switch/NVN, so the hardware value is 0 (w' = w, a no-op). The old
+    // 0x00ff0000 placeholder unpacks to a tiny fp16 denormal that warps clip-space w and flickers
+    // distant geometry; 0 matches real hardware and Ryujinx, which render these titles correctly.
+    return ctx.Const(0u);
 }
 
 Id EmitSR_WScaleFactorZ(EmitContext& ctx) {
-    LOG_WARNING(Shader, "(STUBBED) called");
-    return ctx.Const(0x00ff0000u);
+    return ctx.Const(0u);
 }
 
 Id EmitYDirection(EmitContext& ctx) {

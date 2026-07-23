@@ -159,6 +159,10 @@ struct Values {
     // Discord RPC
     Setting<bool> enable_discord_presence{linkage, false, "enable_discord_presence", Category::Ui};
 
+    // Big Picture / Steam Deck console front-end. Forced on when running on a Steam Deck; this
+    // stored flag lets it be enabled on desktop for testing.
+    Setting<bool> big_picture_mode{linkage, false, "bigPictureMode", Category::Ui};
+
     // logging
     Setting<bool> show_console{linkage, false, "showConsole", Category::Ui};
 

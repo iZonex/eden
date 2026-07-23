@@ -330,6 +330,12 @@ struct InputSubsystem::Impl {
 #endif
     }
 
+    void RescanSDLDevices() const {
+#ifdef HAVE_SDL3
+        sdl->RescanDevices();
+#endif
+    }
+
     void RegisterInput(const MappingData& data) {
         mapping_factory->RegisterInput(data);
     }
@@ -489,6 +495,10 @@ void InputSubsystem::StopMapping() const {
 
 void InputSubsystem::PumpEvents() const {
     impl->PumpEvents();
+}
+
+void InputSubsystem::RescanSDLDevices() const {
+    impl->RescanSDLDevices();
 }
 
 std::string GenerateKeyboardParam(int key_code) {

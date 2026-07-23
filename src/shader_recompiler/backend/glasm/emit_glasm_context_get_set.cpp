@@ -426,11 +426,13 @@ void EmitIsHelperInvocation(EmitContext& ctx, IR::Inst& inst) {
 }
 
 void EmitSR_WScaleFactorXY(EmitContext& ctx, IR::Inst& inst) {
-    LOG_WARNING(Shader, "(STUBBED) called");
+    // NV_clip_space_w_scaling is never enabled on Switch/NVN, so the coefficient is 0 (no-op).
+    // Also assigns the destination, which the old stub left undefined.
+    ctx.Add("MOV.U {}.x,0;", inst);
 }
 
 void EmitSR_WScaleFactorZ(EmitContext& ctx, IR::Inst& inst) {
-    LOG_WARNING(Shader, "(STUBBED) called");
+    ctx.Add("MOV.U {}.x,0;", inst);
 }
 
 void EmitYDirection(EmitContext& ctx, IR::Inst& inst) {

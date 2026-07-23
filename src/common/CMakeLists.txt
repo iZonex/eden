@@ -114,6 +114,10 @@ add_library(
     stb.h
     steady_clock.cpp
     steady_clock.h
+    steam_deck.cpp
+    steam_deck.h
+    steam_integration.cpp
+    steam_integration.h
     stream.cpp
     stream.h
     string_util.cpp
@@ -241,6 +245,34 @@ endif()
 
 target_link_libraries(common PUBLIC fmt::fmt stb::headers Threads::Threads unordered_dense::unordered_dense)
 target_link_libraries(common PRIVATE lz4::lz4 zstd::zstd)
+
+# Native Steam / Steam Input integration. steam_integration.cpp is always compiled; the real
+# Steamworks calls are guarded by EDEN_STEAMWORKS and only enabled when the SDK is present.
+if (EDEN_USE_STEAMWORKS)
+    find_path(STEAMWORKS_INCLUDE_DIR NAMES steam/steam_api.h
+        PATHS "${EDEN_STEAMWORKS_DIR}/public" "${EDEN_STEAMWORKS_DIR}")
+    if (WIN32)
+        set(_steam_lib_subdir "redistributable_bin/win64")
+        set(_steam_lib_names steam_api64)
+    elseif (APPLE)
+        set(_steam_lib_subdir "redistributable_bin/osx")
+        set(_steam_lib_names steam_api)
+    else()
+        set(_steam_lib_subdir "redistributable_bin/linux64")
+        set(_steam_lib_names steam_api)
+    endif()
+    find_library(STEAMWORKS_LIBRARY NAMES ${_steam_lib_names}
+        PATHS "${EDEN_STEAMWORKS_DIR}/${_steam_lib_subdir}")
+    if (STEAMWORKS_INCLUDE_DIR AND STEAMWORKS_LIBRARY)
+        message(STATUS "Steamworks SDK found: ${STEAMWORKS_LIBRARY} — native Steam integration ON")
+        target_include_directories(common PRIVATE "${STEAMWORKS_INCLUDE_DIR}")
+        target_link_libraries(common PRIVATE "${STEAMWORKS_LIBRARY}")
+        target_compile_definitions(common PRIVATE EDEN_STEAMWORKS)
+    else()
+        message(WARNING "EDEN_USE_STEAMWORKS is ON but the Steamworks SDK was not found under "
+                        "${EDEN_STEAMWORKS_DIR} — building Steam integration as no-op stubs.")
+    endif()
+endif()
 
 # Please refer to src/common/demangle.cpp
 if (WIN32)

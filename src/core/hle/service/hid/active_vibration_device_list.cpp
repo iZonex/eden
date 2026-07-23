@@ -36,7 +36,11 @@ Result IActiveVibrationDeviceList::ActivateVibrationDevice(
 
     std::scoped_lock lock{mutex};
 
-    R_TRY(IsVibrationHandleValid(vibration_device_handle));
+    // Tolerate a bad handle rather than returning an error the game may abort on (see
+    // ResourceManager::SendVibrationValue). An invalid/None-style handle is simply not tracked.
+    if (IsVibrationHandleValid(vibration_device_handle).IsError()) {
+        R_SUCCEED();
+    }
 
     for (std::size_t i = 0; i < list_size; i++) {
         if (vibration_device_handle.device_index == vibration_device_list[i].device_index &&
@@ -47,7 +51,11 @@ Result IActiveVibrationDeviceList::ActivateVibrationDevice(
     }
 
     R_UNLESS(list_size < MaxVibrationDevicesHandles, ResultVibrationDeviceIndexOutOfRange);
-    R_TRY(resource_manager->GetVibrationDevice(vibration_device_handle)->Activate());
+    auto* const device = resource_manager->GetVibrationDevice(vibration_device_handle);
+    if (device == nullptr) {
+        R_SUCCEED(); // no device backs this handle — no-op instead of a null dereference
+    }
+    R_TRY(device->Activate());
 
     vibration_device_list[list_size++] = vibration_device_handle;
     R_SUCCEED();

@@ -10,6 +10,7 @@
 #include "common/assert.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
+#include "common/steam_deck.h"
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/hle/service/sm/sm.h"
@@ -248,6 +249,8 @@ QtControllerSelectorDialog::~QtControllerSelectorDialog() {
 }
 
 int QtControllerSelectorDialog::exec() {
+    // Only auto-confirm in single-player mode. For multiplayer this dialog IS the
+    // join mechanism (each extra player presses a button to join), so it must show.
     if (parameters_met && parameters.enable_single_mode) {
         return QDialog::Accepted;
     }

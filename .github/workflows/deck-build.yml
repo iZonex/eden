@@ -1,0 +1,159 @@
+# SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds an x86_64 Linux AppImage of the Deck console-mode fork.
+# Built on Ubuntu 22.04 (glibc 2.35) so the AppImage runs on SteamOS.
+
+name: Deck AppImage Build
+
+on:
+  push:
+    branches: [deck-console-mode, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Avoid needing FUSE on the runner when executing tool AppImages.
+  APPIMAGE_EXTRACT_AND_RUN: 1
+
+jobs:
+  build:
+    # 24.04 (glibc 2.39) matches the prebuilt bundled SDL3, which references
+    # glibc 2.38+ C23 symbols (__isoc23_*) that 22.04's glibc 2.35 lacks.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache pkg-config git wget curl unzip file patchelf \
+            desktop-file-utils python3 python3-pip nasm \
+            glslang-tools libvulkan-dev \
+            libssl-dev zlib1g-dev liblz4-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+            libavfilter-dev libavdevice-dev libswresample-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev \
+            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxfixes-dev libxss-dev libwayland-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Install modern CMake + Ninja (repo needs CMake >= 3.31)
+        run: python3 -m pip install --upgrade "cmake>=3.31" ninja
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtcharts qtmultimedia
+          cache: true
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-deck24-${{ github.sha }}
+          restore-keys: ccache-deck24-
+
+      # Native Steam Input: pull the Steamworks SDK from the private mirror repo
+      # (iZonex/eden-steamworks-sdk) using a read-only deploy key kept in the
+      # STEAMWORKS_SDK_DEPLOY_KEY secret. Valve's license forbids shipping the SDK publicly, so it is
+      # never stored in this repo — only the licensed libsteam_api.so redistributable is later bundled
+      # into the AppImage. Absent the secret the build proceeds without Steam (code is no-op stubs).
+      - name: Fetch Steamworks SDK (private mirror)
+        id: steamsdk
+        env:
+          SDK_KEY: ${{ secrets.STEAMWORKS_SDK_DEPLOY_KEY }}
+        run: |
+          if [ -n "$SDK_KEY" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$SDK_KEY" > ~/.ssh/sdk_key
+            chmod 600 ~/.ssh/sdk_key
+            ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/sdk_key -o IdentitiesOnly=yes" \
+              git clone --depth 1 git@github.com:iZonex/eden-steamworks-sdk.git externals/steamworks
+            rm -f ~/.ssh/sdk_key
+            test -f externals/steamworks/redistributable_bin/linux64/libsteam_api.so
+            echo "have_sdk=1" >> "$GITHUB_OUTPUT"
+            echo "Steamworks SDK ready — native Steam Input ON"
+          else
+            echo "No STEAMWORKS_SDK_DEPLOY_KEY secret — building without native Steam integration"
+            echo "have_sdk=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure
+        run: |
+          STEAM_FLAGS=""
+          if [ "${{ steps.steamsdk.outputs.have_sdk }}" = "1" ]; then
+            STEAM_FLAGS="-DEDEN_USE_STEAMWORKS=ON -DEDEN_STEAMWORKS_DIR=$PWD/externals/steamworks"
+          fi
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_QT=ON \
+            -Dzstd_FORCE_BUNDLED=ON \
+            -DYUZU_USE_BUNDLED_SDL3=ON \
+            -DYUZU_USE_EXTERNAL_FFMPEG=OFF \
+            -DYUZU_TESTS=OFF \
+            -DENABLE_QT_TRANSLATION=OFF \
+            -DENABLE_WEB_SERVICE=OFF \
+            -DYUZU_CMD=OFF \
+            -DYUZU_ROOM=OFF \
+            $STEAM_FLAGS \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # The raw binary proves the fork compiles even before AppImage packaging works.
+      - name: Upload raw binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eden-binary
+          path: build/bin/eden
+          if-no-files-found: warn
+
+      - name: Assemble AppDir
+        run: |
+          cmake --install build --prefix "$PWD/AppDir/usr"
+          # Ship the Steamworks redistributable (licensed to bundle) so SteamAPI loads at runtime.
+          if [ "${{ steps.steamsdk.outputs.have_sdk }}" = "1" ]; then
+            mkdir -p AppDir/usr/lib
+            cp externals/steamworks/redistributable_bin/linux64/libsteam_api.so AppDir/usr/lib/
+          fi
+          ls -R AppDir/usr/share/applications AppDir/usr/share/icons 2>/dev/null || true
+
+      - name: Package AppImage
+        env:
+          OUTPUT: Eden-Deck-x86_64.AppImage
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          # Let linuxdeploy resolve libsteam_api.so (a NEEDED dependency of the binary when built with
+          # Steam) so it copies it in and patches the rpath.
+          if [ "${{ steps.steamsdk.outputs.have_sdk }}" = "1" ]; then
+            export LD_LIBRARY_PATH="$PWD/externals/steamworks/redistributable_bin/linux64:$PWD/AppDir/usr/lib:${LD_LIBRARY_PATH}"
+          fi
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage \
+            --desktop-file AppDir/usr/share/applications/dev.eden_emu.eden.desktop \
+            --icon-file dist/dev.eden_emu.eden.svg
+
+      - name: Upload AppImage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eden-deck-appimage
+          path: "*.AppImage"
+          if-no-files-found: warn

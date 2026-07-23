@@ -41,6 +41,12 @@ public:
     /// Handle SDL_Events for joysticks from SDL_PollEvent
     void HandleGameControllerEvent(const SDL_Event& event);
 
+    /// Forces SDL to re-enumerate joystick hardware by cycling the joystick
+    /// subsystem. Works around dropped hotplug events (e.g. a Bluetooth pad that
+    /// slept and woke which SDL fails to re-detect). Must be called on the same
+    /// thread that pumps SDL events.
+    void RescanDevices();
+
     /// Get the nth joystick with the corresponding GUID
     std::shared_ptr<SDLJoystick> GetSDLJoystickBySDLID(SDL_JoystickID sdl_id);
     std::shared_ptr<SDLJoystick> GetSDLJoystickByGamepadID(SDL_JoystickID sdl_id);
