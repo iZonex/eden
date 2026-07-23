@@ -261,14 +261,16 @@ private:
 /// back into the page on a tap.
 class DockBar : public QWidget {
 public:
-    // No Users item — the avatar opens the Users page. Just the system functions, like the Switch
-    // dock's grey icons.
-    enum { kControllers = 0, kSettings = 1, kPower = 2, kCount = 3 };
+    // Order matches the Switch HOME dock (applicable subset): Album, Controllers, System Settings,
+    // Sleep, then our own Power/Exit. No Users item — the avatar opens the Users page.
+    enum { kAlbum = 0, kControllers = 1, kSettings = 2, kSleep = 3, kPower = 4, kCount = 5 };
 
     explicit DockBar(QWidget* parent = nullptr) : QWidget(parent) {
         setFixedHeight(150);
+        names[kAlbum] = QStringLiteral("album");
         names[kControllers] = QStringLiteral("controllers");
         names[kSettings] = QStringLiteral("settings");
+        names[kSleep] = QStringLiteral("sleep");
         names[kPower] = QStringLiteral("power");
     }
 
@@ -339,7 +341,8 @@ protected:
         pill_path.addRoundedRect(pill, pill.height() / 2, pill.height() / 2);
         p.fillPath(pill_path, DeckTheme::kSurface);
 
-        const std::array<QString, kCount> labels{QObject::tr("Controllers"), QObject::tr("Settings"),
+        const std::array<QString, kCount> labels{QObject::tr("Album"), QObject::tr("Controllers"),
+                                                 QObject::tr("Settings"), QObject::tr("Sleep"),
                                                  QObject::tr("Power")};
         const QColor blue = DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5)
                                                      : QColor(0x6a, 0xb4, 0xff);
@@ -871,11 +874,17 @@ bool DeckGamesPage::OnAccept() {
 
 void DeckGamesPage::ActivateDock() {
     switch (dock->Current()) {
+    case DockBar::kAlbum:
+        emit OpenAlbum();
+        break;
     case DockBar::kControllers:
         emit OpenControllers();
         break;
     case DockBar::kSettings:
         emit OpenSettings();
+        break;
+    case DockBar::kSleep:
+        emit SleepRequested();
         break;
     case DockBar::kPower:
         emit ExitRequested();

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <QKeyEvent>
+#include <QProcess>
 #include <QResizeEvent>
 #include <QSettings>
 #include <QStackedWidget>
@@ -17,6 +18,7 @@
 #include "yuzu/deck/deck_games_page.h"
 #include "yuzu/deck/deck_hint_bar.h"
 #include "yuzu/deck/deck_navigator.h"
+#include "yuzu/deck/deck_album_page.h"
 #include "yuzu/deck/deck_settings_page.h"
 #include "yuzu/deck/deck_shell.h"
 #include "yuzu/deck/deck_theme.h"
@@ -74,11 +76,13 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     controllers_page = new DeckControllersPage(system.HIDCore(), input_subsystem, stack);
     settings_page = new DeckSettingsPage(system, stack);
     users_page = new DeckUsersPage(system, stack);
+    album_page = new DeckAlbumPage(stack);
     stack->addWidget(games_page);
     stack->addWidget(detail_page);
     stack->addWidget(controllers_page);
     stack->addWidget(settings_page);
     stack->addWidget(users_page);
+    stack->addWidget(album_page);
     root_layout->addWidget(stack, 1);
 
     hint_bar = new DeckHintBar(system.HIDCore(), this);
@@ -126,6 +130,11 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
         ShowPage(users_page);
     });
     connect(games_page, &DeckGamesPage::OpenSettings, this, [this] { ShowPage(settings_page); });
+    connect(games_page, &DeckGamesPage::OpenAlbum, this, [this] { ShowPage(album_page); });
+    connect(games_page, &DeckGamesPage::SleepRequested, this, [] {
+        // Switch HOME Sleep — put the Deck itself to sleep (systemd handles the suspend on SteamOS).
+        QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("suspend")});
+    });
     connect(games_page, &DeckGamesPage::ExitRequested, this, &DeckShell::ExitRequested);
 
     connect(settings_page, &DeckSettingsPage::SaveConfigRequested, this,

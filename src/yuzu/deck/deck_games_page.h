@@ -68,12 +68,21 @@ signals:
     void OpenControllers();
     void OpenUsers(Common::UUID focus); ///< open My Page focused on the chosen user (invalid = active)
     void OpenSettings();
+    void OpenAlbum();      ///< HOME dock Album — the screenshots gallery
+    void SleepRequested(); ///< HOME dock Sleep — put the Deck to sleep
     void ExitRequested();
 
 private:
     enum class Zone { Rail, Dock, Avatar };
     // Users is not here — the avatar opens the Users page.
-    enum DockItem { DockControllers = 0, DockSettings = 1, DockPower = 2, DockCount = 3 };
+    enum DockItem {
+        DockAlbum = 0,
+        DockControllers = 1,
+        DockSettings = 2,
+        DockSleep = 3,
+        DockPower = 4,
+        DockCount = 5
+    };
 
     void SetZone(Zone zone);
     void MoveRail(int delta);
