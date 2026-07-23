@@ -7,6 +7,8 @@
 add_library(frontend_common STATIC
     config.cpp
     config.h
+    deck_input.cpp
+    deck_input.h
     content_manager.h
     firmware_manager.h
     firmware_manager.cpp
@@ -28,4 +30,4 @@ endif()
 create_target_directory_groups(frontend_common)
 target_link_libraries(frontend_common
     PUBLIC core SimpleIni::SimpleIni frozen::frozen-headers
-    PRIVATE common Boost::headers)
+    PRIVATE common input_common Boost::headers)

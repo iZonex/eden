@@ -1,0 +1,14 @@
+<!--
+SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<RCC>
+  <qresource prefix="deck">
+    <file alias="games">icons/games.svg</file>
+    <file alias="controllers">icons/controllers.svg</file>
+    <file alias="users">icons/users.svg</file>
+    <file alias="settings">icons/settings.svg</file>
+    <file alias="power">icons/power.svg</file>
+    <file alias="search">icons/search.svg</file>
+  </qresource>
+</RCC>

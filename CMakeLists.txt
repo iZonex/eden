@@ -85,6 +85,14 @@ option(ENABLE_WERROR "Enable -Werror diagnostics" ON)
 # Lossless Scaling frame generation. Only Android.
 cmake_dependent_option(ENABLE_LSFG "Enable Lossless Scaling frame generation" ON "ANDROID" OFF)
 
+# Native Steam / Steam Input integration (Steam Deck). OFF by default because it needs the
+# proprietary Steamworks SDK dropped into externals/steamworks/ (public headers + the
+# redistributable libsteam_api). When OFF, common/steam_integration.cpp compiles as no-op stubs so
+# every build is unaffected; when ON with the SDK present, the native Steam Input path lights up.
+option(EDEN_USE_STEAMWORKS "Enable native Steam/Steam Input integration (needs Steamworks SDK)" OFF)
+set(EDEN_STEAMWORKS_DIR "${CMAKE_SOURCE_DIR}/externals/steamworks" CACHE PATH
+    "Path to the Steamworks SDK (containing public/ and redistributable_bin/)")
+
 # non-linux bundled qt are static
 if (YUZU_USE_BUNDLED_QT AND (APPLE OR NOT UNIX))
     set(YUZU_STATIC_BUILD ON)
