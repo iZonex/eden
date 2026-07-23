@@ -121,7 +121,10 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(detail_page, &DeckPage::HintsChanged, this, &DeckShell::UpdateHints);
     connect(games_page, &DeckGamesPage::OpenControllers, this,
             [this] { ShowPage(controllers_page); });
-    connect(games_page, &DeckGamesPage::OpenUsers, this, [this] { ShowPage(users_page); });
+    connect(games_page, &DeckGamesPage::OpenUsers, this, [this](Common::UUID focus) {
+        users_page->FocusUser(focus);
+        ShowPage(users_page);
+    });
     connect(games_page, &DeckGamesPage::OpenSettings, this, [this] { ShowPage(settings_page); });
     connect(games_page, &DeckGamesPage::ExitRequested, this, &DeckShell::ExitRequested);
 
