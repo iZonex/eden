@@ -53,6 +53,9 @@ public:
     void Activate();
     void Deactivate();
 
+    /// Forward the HOME-suspended title (paused in memory, 0 = none) to the home page's tile badge.
+    void SetSuspendedGame(u64 program_id);
+
     GameListModel* Model() const {
         return model;
     }

@@ -657,6 +657,15 @@ bool DeckGamesPage::IsEmpty() const {
     return filter == nullptr || filter->rowCount() == 0;
 }
 
+void DeckGamesPage::SetSuspendedGame(u64 program_id) {
+    if (delegate != nullptr) {
+        delegate->SetSuspendedProgramId(program_id);
+    }
+    if (rail != nullptr) {
+        rail->viewport()->update();
+    }
+}
+
 QModelIndex DeckGamesPage::CurrentGameIndex() const {
     QModelIndex index = rail->currentIndex();
     if (!index.isValid() && rail_model->rowCount() > 0) {
