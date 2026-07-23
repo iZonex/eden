@@ -127,14 +127,31 @@ public:
                              MemoryAllocator& memory_allocator_);
     ~ASTCDecoderPass();
 
-    void Assemble(Image& image, const StagingBufferRef& map,
-                  std::span<const VideoCommon::SwizzleParameters> swizzles);
+    void Assemble(Image &image, const StagingBufferRef &map,
+                  std::span<const VideoCommon::SwizzleParameters> swizzles, bool wait_for_completion = true);
 
 private:
     Scheduler& scheduler;
     StagingBufferPool& staging_buffer_pool;
     ComputePassDescriptorQueue& compute_pass_descriptor_queue;
     MemoryAllocator& memory_allocator;
+};
+
+class BcnEncodePass final : public ComputePass {
+public:
+    explicit BcnEncodePass(const Device& device_, Scheduler& scheduler_,
+                           DescriptorPool& descriptor_pool_,
+                           ComputePassDescriptorQueue& compute_pass_descriptor_queue_);
+    ~BcnEncodePass();
+
+    void Encode(VkImageView src_view, u32 blocks_x, u32 blocks_y, u32 layers,
+                VkBuffer out_buffer, VkDeviceSize out_buffer_offset, VkDeviceSize output_bytes,
+                u32 format);
+
+private:
+    const Device& device;
+    Scheduler& scheduler;
+    ComputePassDescriptorQueue& compute_pass_descriptor_queue;
 };
 
 class BlockLinearUnswizzle3DPass final : public ComputePass {

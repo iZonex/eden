@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -12,5 +15,7 @@ namespace Tegra::Texture::BCN {
 void CompressBC1(std::span<const u8> data, u32 width, u32 height, u32 depth, std::span<u8> output);
 
 void CompressBC3(std::span<const u8> data, u32 width, u32 height, u32 depth, std::span<u8> output);
+
+void CompressBC7(std::span<const u8> data, u32 width, u32 height, u32 depth, std::span<u8> output);
 
 } // namespace Tegra::Texture::BCN

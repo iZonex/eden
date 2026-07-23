@@ -139,14 +139,18 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     if (Settings::values.accelerate_astc.GetValue() != Settings::AstcDecodeMode::Gpu) {
         return false;
     }
-    return Settings::values.astc_recompression.GetValue() ==
-              Settings::AstcRecompression::Uncompressed &&
-          info.size.depth == 1;
+    return info.size.depth == 1;
 }
 
 [[nodiscard]] bool WillUseWidenedAstcFormat(const Device& device, const ImageInfo& info) {
     return WillUseAcceleratedAstcDecode(device, info) &&
-           !VideoCore::Surface::IsPixelFormatSRGB(info.format);
+          !VideoCore::Surface::IsPixelFormatSRGB(info.format) &&
+          Settings::values.astc_recompression.GetValue() == Settings::AstcRecompression::Uncompressed;
+}
+
+[[nodiscard]] bool NeedsWidenedAstcIntermediate(const Device& device, const ImageInfo& info) {
+    return WillUseAcceleratedAstcDecode(device, info) &&
+          !VideoCore::Surface::IsPixelFormatSRGB(info.format);
 }
 
 [[nodiscard]] VkImageCreateInfo MakeImageCreateInfo(const Device& device, const ImageInfo& info,
@@ -918,7 +922,23 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& sched
     for (size_t index_a = 0; index_a < VideoCore::Surface::MaxPixelFormat; index_a++) {
         const auto image_format = static_cast<PixelFormat>(index_a);
         if (IsPixelFormatASTC(image_format) && !device.IsOptimalAstcSupported()) {
-            view_formats[index_a].push_back(VK_FORMAT_A8B8G8R8_UNORM_PACK32);
+            switch (Settings::values.astc_recompression.GetValue()) {
+                case Settings::AstcRecompression::Bc1:
+                    view_formats[index_a].push_back(VK_FORMAT_BC1_RGBA_UNORM_BLOCK);
+                    view_formats[index_a].push_back(VK_FORMAT_BC1_RGBA_SRGB_BLOCK);
+                    break;
+                case Settings::AstcRecompression::Bc3:
+                    view_formats[index_a].push_back(VK_FORMAT_BC3_UNORM_BLOCK);
+                    view_formats[index_a].push_back(VK_FORMAT_BC3_SRGB_BLOCK);
+                    break;
+                case Settings::AstcRecompression::Bc7:
+                    view_formats[index_a].push_back(VK_FORMAT_BC7_UNORM_BLOCK);
+                    view_formats[index_a].push_back(VK_FORMAT_BC7_SRGB_BLOCK);
+                    break;
+                default:
+                    view_formats[index_a].push_back(VK_FORMAT_A8B8G8R8_UNORM_PACK32);
+                    break;
+            }
         }
         for (size_t index_b = 0; index_b < VideoCore::Surface::MaxPixelFormat; index_b++) {
             const auto view_format = static_cast<PixelFormat>(index_b);
@@ -933,6 +953,11 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& sched
     if (Settings::values.gpu_unswizzle_enabled.GetValue()) {
         bl3d_unswizzle_pass.emplace(device, scheduler, descriptor_pool,
                                    staging_buffer_pool, compute_pass_descriptor_queue);
+    }
+
+    if (Settings::values.astc_recompression.GetValue() != Settings::AstcRecompression::Uncompressed) {
+        bcn_encode_pass.emplace(device, scheduler, descriptor_pool,
+                                  compute_pass_descriptor_queue);
     }
 }
 
@@ -1770,6 +1795,7 @@ std::optional<size_t> TextureCacheRuntime::GetSamplerHeapBudget() const {
 }
 
 void TextureCacheRuntime::TickFrame() {
+    sentenced_temp_astc_images.Tick();
     std::erase_if(pending_msaa_images, [this](const auto& pending) {
         return scheduler.IsFree(pending.first);
     });
@@ -2850,6 +2876,9 @@ void TextureCacheRuntime::AccelerateImageUpload(
     u32 z_start, u32 z_count) {
 
     if (IsPixelFormatASTC(image.info.format)) {
+        if (Settings::values.astc_recompression.GetValue() != Settings::AstcRecompression::Uncompressed) {
+            return AccelerateAstcBCnRecompress(image, map, swizzles);
+        }
         return astc_decoder_pass->Assemble(image, map, swizzles);
     }
 
@@ -2866,6 +2895,127 @@ void TextureCacheRuntime::AccelerateImageUpload(
     }
 
     ASSERT(false);
+}
+
+void TextureCacheRuntime::AccelerateAstcBCnRecompress(
+    Image& image, const StagingBufferRef& map,
+    std::span<const VideoCommon::SwizzleParameters> swizzles) {
+
+    const auto recompression = Settings::values.astc_recompression.GetValue();
+    const u32 format = recompression == Settings::AstcRecompression::Bc7 ? 2u
+                      : recompression == Settings::AstcRecompression::Bc3 ? 1u : 0u;
+    const bool is_16_byte = format != 0u;
+
+    ImageInfo temp_info = image.info;
+    VkImageCreateInfo image_ci = MakeImageCreateInfo(device, temp_info);
+    image_ci.format = NeedsWidenedAstcIntermediate(device, image.info)
+                          ? VK_FORMAT_R32G32B32A32_SFLOAT
+                          : VK_FORMAT_A8B8G8R8_UNORM_PACK32;
+    image_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    vk::Image temp_vk_image = memory_allocator.CreateImage(image_ci);
+
+    Image temp_wrapper(*this, temp_info, 0, 0);
+    temp_wrapper.original_image = std::move(temp_vk_image);
+    temp_wrapper.current_image = &Image::original_image;
+    temp_wrapper.aspect_mask = image.AspectMask();
+
+    astc_decoder_pass->Assemble(temp_wrapper, map, swizzles, false);
+
+    const u32 layers = image.info.resources.layers;
+    const VkImage dst_image = image.Handle();
+    const VkImageAspectFlags aspect = image.AspectMask();
+
+    scheduler.Record([dst_image, aspect](vk::CommandBuffer cmdbuf) {
+        const VkImageMemoryBarrier pre_barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = dst_image,
+            .subresourceRange = {aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
+        };
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                               0, pre_barrier);
+    });
+
+    VkDeviceSize total_staging_bytes = 0;
+    std::vector<VkDeviceSize> mip_offsets;
+    mip_offsets.reserve(swizzles.size());
+
+    for (const VideoCommon::SwizzleParameters& swizzle : swizzles) {
+        const u32 level = swizzle.level;
+        const u32 level_width  = (std::max)(1u, image.info.size.width  >> level);
+        const u32 level_height = (std::max)(1u, image.info.size.height >> level);
+        const u32 blocks_x = Common::DivCeil(level_width, 4u);
+        const u32 blocks_y = Common::DivCeil(level_height, 4u);
+
+        const VkDeviceSize mip_bytes = static_cast<VkDeviceSize>(blocks_x) * blocks_y * (is_16_byte ? 16u : 8u) * layers;
+        mip_offsets.push_back(total_staging_bytes);
+        total_staging_bytes += mip_bytes;
+    }
+
+    StagingBufferRef out_buffer = staging_buffer_pool.Request(total_staging_bytes, MemoryUsage::DeviceLocal, true);
+
+    for (size_t i = 0; i < swizzles.size(); ++i) {
+        const u32 level = swizzles[i].level;
+        const u32 level_width  = (std::max)(1u, image.info.size.width  >> level);
+        const u32 level_height = (std::max)(1u, image.info.size.height >> level);
+        const u32 blocks_x = Common::DivCeil(level_width, 4u);
+        const u32 blocks_y = Common::DivCeil(level_height, 4u);
+
+        const VkDeviceSize mip_bytes = static_cast<VkDeviceSize>(blocks_x) * blocks_y * (is_16_byte ? 16u : 8u) * layers;
+        const VkDeviceSize current_offset = out_buffer.offset + mip_offsets[i];
+
+        bcn_encode_pass->Encode(temp_wrapper.StorageImageView(level), blocks_x, blocks_y, layers,
+                                    out_buffer.buffer, current_offset, mip_bytes, format);
+
+        const VkBuffer src_buffer = out_buffer.buffer;
+        const VkDeviceSize per_layer_bytes = mip_bytes / layers;
+
+        scheduler.Record([dst_image, aspect, src_buffer, current_offset, level_width, level_height,
+                          per_layer_bytes, layers, level, blocks_x, blocks_y](vk::CommandBuffer cmdbuf) {
+            boost::container::small_vector<VkBufferImageCopy, 8> regions;
+            for (u32 layer = 0; layer < layers; ++layer) {
+                regions.push_back(VkBufferImageCopy{
+                    .bufferOffset = current_offset + per_layer_bytes * layer,
+                    .bufferRowLength = blocks_x * 4u,
+                    .bufferImageHeight = blocks_y * 4u,
+                    .imageSubresource = {aspect, level, layer, 1},
+                    .imageOffset = {0, 0, 0},
+                    .imageExtent = {level_width, level_height, 1},
+                });
+            }
+            cmdbuf.CopyBufferToImage(src_buffer, dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     regions);
+        });
+    }
+
+    scheduler.Record([dst_image, aspect](vk::CommandBuffer cmdbuf) {
+        const VkImageMemoryBarrier post_barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = dst_image,
+            .subresourceRange = {aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
+        };
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
+                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, post_barrier);
+    });
+
+    // Uncomment this if the flashing returns, I don't know what game it happened in
+    //scheduler.Finish();
+
+    // I do not know if this is needed anymore but something kept nuking the temp_wrapper or the temp_wrapper would just remain in memory forever
+    sentenced_temp_astc_images.Push(std::move(temp_wrapper));
 }
 
 void TextureCacheRuntime::TransitionImageLayout(Image& image) {

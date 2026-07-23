@@ -17,6 +17,7 @@
 #include "video_core/texture_cache/image_view_base.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
+#include "video_core/delayed_destruction_ring.h"
 
 namespace Settings {
 struct ResolutionScalingInfo;
@@ -95,6 +96,9 @@ public:
                                std::span<const VideoCommon::SwizzleParameters>,
                                u32 z_start, u32 z_count);
 
+    void AccelerateAstcBCnRecompress(Image &image, const StagingBufferRef &map,
+                                     std::span<const VideoCommon::SwizzleParameters> swizzles);
+
     void InsertUploadMemoryBarrier() {}
 
     void TransitionImageLayout(Image& image);
@@ -151,9 +155,12 @@ public:
     std::optional<BlockLinearUnswizzle3DPass> bl3d_unswizzle_pass;
     const Settings::ResolutionScalingInfo& resolution;
     std::array<std::vector<VkFormat>, VideoCore::Surface::MaxPixelFormat> view_formats;
+    std::optional<BcnEncodePass>  bcn_encode_pass;
 
     static constexpr size_t indexing_slots = 8 * sizeof(size_t);
     std::array<vk::Buffer, indexing_slots> buffers{};
+
+    VideoCommon::DelayedDestructionRing<Image, 8> sentenced_temp_astc_images;
     std::vector<std::pair<u64, vk::Image>> pending_msaa_images;
     ankerl::unordered_dense::map<VkImage, ResolveShadow> resolve_shadows;
 };
@@ -324,6 +331,7 @@ public:
     u64 allocation_tick;
 
     friend class BlockLinearUnswizzle3DPass;
+    friend class TextureCacheRuntime;
 
 private:
     bool BlitScaleHelper(bool scale_up);
