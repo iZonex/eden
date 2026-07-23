@@ -63,3 +63,4 @@ artifacts
 /install*
 vulkansdk*.exe
 *.tar.zst
+sdk/

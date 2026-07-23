@@ -6,6 +6,8 @@
 #undef VMA_IMPLEMENTATION
 #endif
 
+#include <algorithm>
+
 #include <boost/algorithm/string/split.hpp>
 #include "common/fs/path_util.h"
 #include "common/settings.h"
@@ -109,7 +111,10 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 }
 
 // Frontend //
+#include "common/steam_deck.h"
+#include "frontend_common/deck_input.h"
 #include "frontend_common/play_time_manager.h"
+#include "yuzu/deck/deck_shell.h"
 
 #ifdef ENABLE_UPDATE_CHECKER
 #include "frontend_common/update_checker.h"
@@ -148,8 +153,10 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "core/crypto/key_manager.h"
 
 // Input //
+#include "common/settings_input.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
+#include "hid_core/hid_types.h"
 #include "input_common/drivers/virtual_amiibo.h"
 
 // Video Core //
@@ -357,6 +364,19 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     Common::FS::CreateEdenPaths();
     this->config = std::make_unique<QtConfig>();
 
+    // Steam Deck: apply optimal graphics/system defaults once on first run so the
+    // console experience works out of the box (no-op off-Deck / after the first run).
+    if (FrontendCommon::ApplySteamDeckDefaultsOnce()) {
+        config->SaveAllValues();
+    }
+
+    // Controllers on the Deck are handled purely through Steam's default gamepad emulation into SDL
+    // (see FrontendCommon::ReconcileSteamDeckControllers). We do NOT touch the Steam Input API: its
+    // action path delivers no input on a non-Steam shortcut, and its controller identity does not map
+    // back to the SDL device (its gamepad-slot index and the SDL port disagree), so it gives us
+    // nothing usable. SDL device names ("Xbox One Controller", "Steam Deck Controller") are the
+    // reliable identity instead.
+
     if (user_data_migrator.migrated) {
         // Sort-of hack whereby we only move the old dir if it's a subfolder of the user dir
 
@@ -419,7 +439,29 @@ MainWindow::MainWindow(bool has_broken_vulkan)
 
     UpdateWindowTitle();
 
-    show();
+    // View ▸ Big Picture Mode — lets the console front-end be toggled at runtime (mainly for
+    // testing on desktop; on a Steam Deck it is entered automatically).
+    big_picture_action = ui->menu_View->addAction(tr("Big Picture Mode"));
+    big_picture_action->setCheckable(true);
+    connect(big_picture_action, &QAction::triggered, this, [this](bool checked) {
+        // The menu is where the persistent preference lives.
+        UISettings::values.big_picture_mode.SetValue(checked);
+        OnSaveConfig();
+        if (checked) {
+            EnterBigPicture();
+        } else {
+            ExitBigPicture();
+        }
+    });
+
+    // Enter Big Picture *before* the window is first shown, so a Deck/console user never sees the
+    // desktop UI (or its startup dialogs) flash by — it comes up straight into the console shell.
+    MaybeEnterBigPicture();
+
+    // EnterBigPicture already showed the window full-screen; only show normally otherwise.
+    if (!big_picture_active) {
+        show();
+    }
 
 #ifdef ENABLE_UPDATE_CHECKER
     if (UISettings::values.check_for_updates) {
@@ -447,7 +489,9 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     if (Settings::values.use_dev_keys.GetValue()) {
         Core::Crypto::KeyManager::Instance().ReloadKeys();
     }
-    game_list->PopulateAsync(UISettings::values.game_dirs);
+    if (!big_picture_active) {
+        game_list->PopulateAsync(UISettings::values.game_dirs);
+    }
 
     // Set up game list mode checkboxes.
     SetGameListMode(UISettings::values.game_list_mode.GetValue());
@@ -463,6 +507,17 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     update_input_timer.setInterval(default_input_update_timeout);
     connect(&update_input_timer, &QTimer::timeout, this, &MainWindow::UpdateInputDrivers);
     update_input_timer.start();
+
+    // Steam Deck: reconcile controllers ~2 Hz, always (menu and in-game), so a pad that dropped and
+    // came back is remapped to its player automatically without a manual re-map.
+    if (Common::IsSteamDeck()) {
+        deck_reconcile_timer.setInterval(500);
+        connect(&deck_reconcile_timer, &QTimer::timeout, this, [this] {
+            FrontendCommon::ReconcileSteamDeckControllers(*input_subsystem,
+                                                          QtCommon::system->HIDCore());
+        });
+        deck_reconcile_timer.start();
+    }
 
     if (has_broken_vulkan) {
         UISettings::values.has_broken_vulkan = true;
@@ -629,6 +684,16 @@ void MainWindow::AmiiboSettingsRequestExit() {
 
 void MainWindow::ControllerSelectorReconfigureControllers(
     const Core::Frontend::ControllerParameters& parameters) {
+    // In Big Picture / console mode there is no interactive applet: a modal dialog cannot show over
+    // the full-screen shell in gamescope, and the old path's ApplySettings()+SaveAllValues() on
+    // every request churned controller state so the game re-requested the applet ~15×/s until the
+    // kernel event budget was exhausted and it crashed. Auto-deduce a valid config instead.
+    if (big_picture_active) {
+        ControllerSelectorAutoConfigure(parameters);
+        emit ControllerSelectorReconfigureFinished(true);
+        return;
+    }
+
     controller_applet =
         new QtControllerSelectorDialog(this, parameters, input_subsystem.get(), *QtCommon::system);
     SCOPE_EXIT {
@@ -650,6 +715,148 @@ void MainWindow::ControllerSelectorReconfigureControllers(
     UpdateStatusButtons();
 
     emit ControllerSelectorReconfigureFinished(is_success);
+}
+
+void MainWindow::ControllerSelectorAutoConfigure(
+    const Core::Frontend::ControllerParameters& parameters) {
+    using Core::HID::NpadIdType;
+    using Core::HID::NpadStyleIndex;
+    constexpr std::size_t kNumPlayers = 8;
+
+    auto& hid_core = QtCommon::system->HIDCore();
+
+    const std::size_t min_players =
+        parameters.enable_single_mode ? 1u : std::max<std::size_t>(1u, parameters.min_players);
+    const std::size_t max_players =
+        parameters.enable_single_mode ? 1u
+                                      : std::max<std::size_t>(min_players, parameters.max_players);
+
+    // The style the game will accept, in Deck-preference order. Pro Controller is valid in docked
+    // mode (the Deck default) and covers virtually every game; the rest are fallbacks.
+    const auto style_for = [&](std::size_t index) -> NpadStyleIndex {
+        if (parameters.allow_pro_controller)
+            return NpadStyleIndex::Fullkey;
+        if (parameters.allow_dual_joycons)
+            return NpadStyleIndex::JoyconDual;
+        if (parameters.allow_left_joycon && parameters.allow_right_joycon)
+            return index % 2 == 0 ? NpadStyleIndex::JoyconLeft : NpadStyleIndex::JoyconRight;
+        if (parameters.allow_left_joycon)
+            return NpadStyleIndex::JoyconLeft;
+        if (parameters.allow_right_joycon)
+            return NpadStyleIndex::JoyconRight;
+        return NpadStyleIndex::Fullkey; // last resort — better than leaving the game unsatisfied
+    };
+
+    const auto has_real_binding = [](const Core::HID::EmulatedController* c) {
+        if (c == nullptr || !c->IsConnected()) {
+            return false;
+        }
+        const std::string engine = c->GetButtonParam(Settings::NativeButton::A).Get("engine", "");
+        return !engine.empty() && engine != "keyboard" && engine != "mouse";
+    };
+
+    // Keep every pad that already carries a real binding (the players who actually joined via the
+    // Controllers screen), clamped to the game's [min, max] range.
+    std::size_t assigned = 0;
+    for (std::size_t i = 0; i < kNumPlayers; ++i) {
+        if (has_real_binding(hid_core.GetEmulatedControllerByIndex(i))) {
+            ++assigned;
+        }
+    }
+    const std::size_t target = std::clamp(assigned, min_players, max_players);
+
+    LOG_INFO(Frontend,
+             "Deck controller applet (headless): min={} max={} single={} pro={} dual={} handheld={} "
+             "assigned={} -> target={}",
+             min_players, max_players, parameters.enable_single_mode,
+             parameters.allow_pro_controller, parameters.allow_dual_joycons,
+             parameters.allow_handheld, assigned, target);
+
+    auto* handheld = hid_core.GetEmulatedController(NpadIdType::Handheld);
+
+    // Handheld-only games (allow ONLY the handheld npad) are played handheld on the Deck: switch to
+    // handheld console mode and drive the Handheld controller from Player 1's device mapping, since
+    // the Handheld npad (players[8]) has no binding of its own.
+    const bool handheld_only = parameters.allow_handheld && !parameters.allow_pro_controller &&
+                               !parameters.allow_dual_joycons && !parameters.allow_left_joycon &&
+                               !parameters.allow_right_joycon;
+    if (handheld_only) {
+        if (Settings::IsDockedMode()) {
+            Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Handheld);
+            OnDockedModeChanged(true, false, *QtCommon::system);
+        }
+        if (handheld != nullptr && !handheld->IsConnected()) {
+            auto* const player1 = hid_core.GetEmulatedControllerByIndex(0);
+            if (player1 != nullptr) {
+                handheld->EnableConfiguration();
+                for (std::size_t b = 0; b < Settings::NativeButton::NumButtons; ++b) {
+                    handheld->SetButtonParam(b, player1->GetButtonParam(b));
+                }
+                for (std::size_t s = 0; s < Settings::NativeAnalog::NumAnalogs; ++s) {
+                    handheld->SetStickParam(s, player1->GetStickParam(s));
+                }
+                for (std::size_t m = 0; m < Settings::NativeMotion::NumMotions; ++m) {
+                    handheld->SetMotionParam(m, player1->GetMotionParam(m));
+                }
+                handheld->SetNpadStyleIndex(NpadStyleIndex::Handheld);
+                handheld->DisableConfiguration();
+                player1->Disconnect();
+                handheld->Connect();
+            }
+        }
+        return;
+    }
+
+    // Standard path: docked mode, connect the assigned pads with the chosen style. Every step is
+    // guarded so a call that changes nothing issues no Connect/Disconnect (and thus no npad
+    // callbacks) — which is what keeps a game from re-requesting the applet in a loop.
+    if (!Settings::IsDockedMode()) {
+        Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Docked);
+        OnDockedModeChanged(false, true, *QtCommon::system);
+    }
+    if (handheld != nullptr && handheld->IsConnected()) {
+        handheld->Disconnect();
+    }
+    auto& players = Settings::values.players.GetValue();
+    for (std::size_t i = 0; i < kNumPlayers; ++i) {
+        auto* const controller = hid_core.GetEmulatedControllerByIndex(i);
+        if (controller == nullptr) {
+            continue;
+        }
+        if (i < target) {
+            const NpadStyleIndex style = style_for(i);
+            if (controller->GetNpadStyleIndex() != style) {
+                const bool was_connected = controller->IsConnected();
+                if (was_connected) {
+                    controller->Disconnect();
+                }
+                controller->SetNpadStyleIndex(style);
+                if (was_connected) {
+                    controller->Connect();
+                }
+            }
+            if (!controller->IsConnected()) {
+                controller->Connect();
+            }
+            if (i < players.size()) {
+                players[i].connected = true;
+            }
+        } else if (!parameters.keep_controllers_connected) {
+            // Only reduce to the target when the game does NOT ask to keep controllers connected.
+            // A single-player game commonly sets keep_controllers_connected=true: on real hardware
+            // the extra pad stays connected (just idle) and only Player 1 drives the game. If we
+            // disconnect it anyway we violate that request, the game re-launches the controller
+            // applet, and the persisted connected=true state resurrects the pad — an infinite applet
+            // loop that exhausts the kernel event budget and hangs the game. So leave extras alone
+            // when asked to keep them; persist the state either way so nothing resurrects a pad.
+            if (controller->IsConnected()) {
+                controller->Disconnect();
+            }
+            if (i < players.size()) {
+                players[i].connected = false;
+            }
+        }
+    }
 }
 
 void MainWindow::ControllerSelectorRequestExit() {
@@ -967,6 +1174,26 @@ void MainWindow::InitializeWidgets() {
     ui->horizontalLayout->addWidget(game_list_placeholder);
     game_list_placeholder->setVisible(false);
 
+    // Big Picture / Steam Deck console front-end. Shares the desktop's VFS/provider so it needs no
+    // extra plumbing; hidden until entered.
+    deck_shell = new DeckShell(QtCommon::vfs, QtCommon::provider.get(), *play_time_manager,
+                               *QtCommon::system, *input_subsystem, this);
+    ui->horizontalLayout->addWidget(deck_shell);
+    deck_shell->setVisible(false);
+    connect(deck_shell, &DeckShell::GameChosen, this, &MainWindow::OnGameListLoadFile);
+    // Console power-off always quits the app — the old desktop UI is never shown from the console
+    // front-end (on a Deck this returns to Steam). The desktop UI remains reachable only by
+    // launching with Big Picture disabled.
+    connect(deck_shell, &DeckShell::ExitRequested, this, &MainWindow::close);
+    connect(deck_shell, &DeckShell::SaveConfigRequested, this, &MainWindow::OnSaveConfig);
+    connect(deck_shell, &DeckShell::RemoveUpdateRequested, this, [this](u64 program_id) {
+        OnGameListRemoveInstalledEntry(program_id, QtCommon::Game::InstalledEntryType::Update);
+    });
+    connect(deck_shell, &DeckShell::RemoveDLCRequested, this, [this](u64 program_id) {
+        OnGameListRemoveInstalledEntry(program_id, QtCommon::Game::InstalledEntryType::AddOnContent);
+    });
+    connect(deck_shell, &DeckShell::DeleteGameRequested, this, &MainWindow::OnBigPictureDeleteGame);
+
     loading_screen = new LoadingScreen(this);
     loading_screen->hide();
     ui->horizontalLayout->addWidget(loading_screen);
@@ -1224,6 +1451,107 @@ void MainWindow::InitializeWidgets() {
 
     statusBar()->setVisible(true);
     setStyleSheet(QStringLiteral("QStatusBar::item{border: none;}"));
+}
+
+// True when the command line asks Eden to launch something specific — a game path (`-g <rom>` or a
+// bare path, as ES-DE invokes it), or qlaunch/hlaunch/setup — rather than open the console. In that
+// case Eden must stay a plain per-game launcher and never take over with the Big Picture shell.
+static bool HasCommandLineLaunchTarget() {
+    const QStringList args = QApplication::arguments();
+    for (int i = 1; i < args.size(); ++i) {
+        const QString& a = args[i];
+        if (a == QStringLiteral("-g") || a == QStringLiteral("-qlaunch") ||
+            a == QStringLiteral("-hlaunch") || a == QStringLiteral("-setup")) {
+            return true;
+        }
+        if (a == QStringLiteral("-u") || a == QStringLiteral("-input-profile")) {
+            ++i; // skip the option's value
+            continue;
+        }
+        if (!a.startsWith(QLatin1Char('-'))) {
+            return true; // a bare argument is a game path
+        }
+    }
+    return false;
+}
+
+void MainWindow::MaybeEnterBigPicture() {
+    if (HasCommandLineLaunchTarget()) {
+        // Launched for a specific game (e.g. from ES-DE) — behave exactly as upstream Eden.
+        LOG_INFO(Frontend, "Big Picture: skipped (command-line launch target present)");
+        return;
+    }
+    const bool is_deck = Common::IsSteamDeck();
+    const bool pref = UISettings::values.big_picture_mode.GetValue();
+    LOG_INFO(Frontend, "Big Picture: IsSteamDeck={} big_picture_mode={}", is_deck, pref);
+    if (is_deck || pref) {
+        EnterBigPicture();
+    }
+}
+
+void MainWindow::EnterBigPicture() {
+    if (big_picture_active || emulation_running) {
+        return;
+    }
+    big_picture_active = true;
+    if (big_picture_action != nullptr) {
+        const QSignalBlocker blocker(big_picture_action);
+        big_picture_action->setChecked(true);
+    }
+
+    // Hide the desktop chrome and library; the shell owns the whole window.
+    menuBar()->hide();
+    statusBar()->hide();
+    game_list->hide();
+    game_list_placeholder->hide();
+
+    deck_shell->show();
+    deck_shell->raise();
+    deck_shell->Activate();
+
+    if (!isFullScreen()) {
+        showFullScreen();
+    }
+    LOG_INFO(Frontend, "Big Picture: entered (shell visible={}, fullscreen={})",
+             deck_shell->isVisible(), isFullScreen());
+}
+
+void MainWindow::ExitBigPicture() {
+    if (!big_picture_active) {
+        return;
+    }
+    big_picture_active = false;
+    if (big_picture_action != nullptr) {
+        const QSignalBlocker blocker(big_picture_action);
+        big_picture_action->setChecked(false);
+    }
+
+    deck_shell->Deactivate();
+    deck_shell->hide();
+
+    // Restore the desktop UI.
+    showNormal();
+    menuBar()->show();
+    statusBar()->show();
+    if (!emulation_running) {
+        if (game_list->IsEmpty()) {
+            game_list_placeholder->show();
+        } else {
+            game_list->show();
+        }
+    }
+}
+
+void MainWindow::OnBigPictureDeleteGame(QString path, u64 program_id, QString title) {
+    // The console detail page already asked for confirmation. Delete the game file from disk. The
+    // console shell re-scans its own model; the hidden desktop list refreshes on next use.
+    const std::filesystem::path fs_path{path.toStdString()};
+    if (Common::FS::RemoveFile(fs_path)) {
+        LOG_INFO(Frontend, "Big Picture: deleted game '{}' ({:016X}) at {}", title.toStdString(),
+                 program_id, path.toStdString());
+    } else {
+        LOG_ERROR(Frontend, "Big Picture: failed to delete game file {}", path.toStdString());
+    }
 }
 
 void MainWindow::InitializeDebugWidgets() {
@@ -1926,6 +2254,11 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
+    // Steam Deck: auto-map connected controllers so booting a game "just works"
+    // with zero manual input configuration (no-op when not running on a Deck).
+    FrontendCommon::AutoConfigureSteamDeckControllers(*input_subsystem,
+                                                       QtCommon::system->HIDCore());
+
     Settings::LogSettings();
 
     if (UISettings::values.select_user_on_boot && !user_flag_cmd_line) {
@@ -1978,6 +2311,14 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         game_list->hide();
         game_list_placeholder->hide();
     }
+    // In Big Picture, hand the window over to the render view: stop polling and hide the shell.
+    if (big_picture_active) {
+        deck_shell->Deactivate();
+        deck_shell->hide();
+    }
+    // Never reconfigure controllers while a game runs — remapping mid-game churns HID/kernel
+    // handles. Recovery happens in the menu instead.
+    deck_reconcile_timer.stop();
     status_bar_update_timer.start(500);
     renderer_status_button->setDisabled(true);
     refresh_button->setDisabled(true);
@@ -2130,12 +2471,21 @@ void MainWindow::OnEmulationStopped() {
     render_window->hide();
     loading_screen->hide();
     loading_screen->Clear();
-    if (game_list->IsEmpty()) {
+    // Back in the menu: resume controller reconciliation (recovers pads that dropped in-game).
+    if (Common::IsSteamDeck()) {
+        deck_reconcile_timer.start();
+    }
+    if (big_picture_active) {
+        // Returning from a game lands back in the console library, not the desktop list.
+        deck_shell->show();
+        deck_shell->raise();
+        deck_shell->Activate();
+    } else if (game_list->IsEmpty()) {
         game_list_placeholder->show();
     } else {
         game_list->show();
+        game_list->SetFilterFocus();
     }
-    game_list->SetFilterFocus();
     tas_label->clear();
     input_subsystem->GetTas()->Stop();
     OnTasStateChanged();
@@ -2661,6 +3011,13 @@ void MainWindow::OnGameListAddDirectory() {
 }
 
 void MainWindow::OnGameListShowList(bool show) {
+    // While the console front-end owns the window, never let the desktop list re-show itself — its
+    // async scan completing would otherwise pop it back up alongside the shell.
+    if (big_picture_active) {
+        game_list->setVisible(false);
+        game_list_placeholder->setVisible(false);
+        return;
+    }
     if (emulation_running && ui->action_Single_Window_Mode->isChecked())
         return;
     game_list->setVisible(show);
@@ -3263,7 +3620,9 @@ void MainWindow::ToggleWindowMode() {
         if (emulation_running) {
             render_window->setVisible(true);
             render_window->RestoreGeometry();
-            game_list->show();
+            if (!big_picture_active) {
+                game_list->show();
+            }
         }
     }
 }
@@ -4078,6 +4437,16 @@ void MainWindow::UpdateStatusBar() {
         return;
     }
 
+    // (Steam Deck controller reconciliation runs on its own always-on timer — see the ctor — so
+    // dropped pads recover in the menu as well as in-game.)
+
+    // Steam Deck: Nintendo-Switch-style close-game — hold Select+Start ~1s to quit back
+    // to the game list. Deferred via a queued call so we never run a dialog from inside
+    // this timer slot (the same pattern the controller hotkeys use).
+    if (FrontendCommon::ShouldExitGameOnHotkeyHold(QtCommon::system->HIDCore())) {
+        QMetaObject::invokeMethod(this, [this] { OnStopGame(); }, Qt::QueuedConnection);
+    }
+
     if (Settings::values.tas_enable)
         tas_label->setText(GetTasStateDescription());
     else
@@ -4229,7 +4598,8 @@ void MainWindow::OnMouseActivity() {
 }
 
 void MainWindow::OnCheckFirmwareDecryption() {
-    if (!ContentManager::AreKeysPresent()) {
+    // In the console front-end, never block startup with a desktop modal.
+    if (!big_picture_active && !ContentManager::AreKeysPresent()) {
         const auto res = QtCommon::Frontend::Warning(
             tr("Derivation Components Missing"),
             tr("Decryption keys are missing. Install them now?"),

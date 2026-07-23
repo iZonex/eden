@@ -573,6 +573,37 @@ void SDLDriver::PumpEvents() const {
     }
 }
 
+void SDLDriver::RescanDevices() {
+    if (!initialized) {
+        return;
+    }
+
+    // Release every tracked joystick while the subsystem is still valid, so the
+    // SDL_CloseJoystick/SDL_CloseGamepad deleters run on live handles.
+    {
+        std::scoped_lock lock{joystick_map_mutex};
+        joystick_map.clear();
+    }
+
+    // Cycle the joystick subsystem to force a fresh hardware scan. This is the
+    // documented workaround for SDL dropping the reconnect event of a Bluetooth
+    // controller that went to sleep and woke up (libsdl-org/SDL#8260).
+    SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
+    if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
+        LOG_ERROR(Input, "SDL re-init failed during device rescan: {}", SDL_GetError());
+        return;
+    }
+
+    int joystick_count = 0;
+    SDL_JoystickID* joysticks = SDL_GetJoysticks(&joystick_count);
+    if (joysticks != nullptr) {
+        for (int i = 0; i < joystick_count; ++i) {
+            InitJoystick(joysticks[i]);
+        }
+        SDL_free(joysticks);
+    }
+}
+
 void SDLDriver::HandleGameControllerEvent(const SDL_Event& event) {
     switch (event.type) {
     case SDL_EVENT_JOYSTICK_BUTTON_UP: {

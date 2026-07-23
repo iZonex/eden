@@ -91,7 +91,10 @@ ResourceManager::~ResourceManager() {
     system.CoreTiming().UnscheduleEvent(mouse_keyboard_update_event);
     system.CoreTiming().UnscheduleEvent(motion_update_event);
     system.CoreTiming().UnscheduleEvent(touch_update_event);
-    input_event->Finalize(system.Kernel());
+    // Release the event through the service context so its EventCountMax reservation is returned;
+    // calling Finalize() directly leaks the reservation, which matters in console mode where the
+    // process outlives many game sessions.
+    service_context.CloseEvent(input_event);
 };
 
 void ResourceManager::Initialize() {
@@ -454,9 +457,13 @@ Result ResourceManager::SendVibrationValue(u64 aruid,
     Result result = IsVibrationAruidActive(aruid, has_active_aruid);
 
     if (result.IsSuccess() && has_active_aruid) {
-        result = IsVibrationHandleValid(handle);
-    }
-    if (result.IsSuccess() && has_active_aruid) {
+        // Tolerate an invalid/None-style vibration handle instead of returning an error: some
+        // titles (Unreal Engine force-feedback games such as Brothers) cache a handle built before
+        // the pad had a valid style, then ABORT the whole game if a vibration call fails. Treat a
+        // bad handle as a no-op — worst case a dropped rumble, which never crashes real hardware.
+        if (IsVibrationHandleValid(handle).IsError()) {
+            return ResultSuccess;
+        }
         device = GetNSVibrationDevice(handle);
     }
     if (device != nullptr) {

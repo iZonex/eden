@@ -235,7 +235,13 @@ void WindowSystem::PruneTerminatedAppletsLocked() {
 
         std::scoped_lock lk{applet->lock};
 
-        if (!applet->process->IsTerminated()) {
+        // Frontend (HLE) library applets — the controller/keyboard/etc. applets — run on a dummy,
+        // never-initialized process, so process->IsTerminated() is permanently false and they would
+        // never be pruned: each launch then leaks the ~19 kernel events the Applet/broker own, and a
+        // game that re-opens such an applet in a loop exhausts the event budget and crashes. Treat a
+        // completed frontend applet as terminated so the existing teardown frees its events.
+        const bool frontend_completed = applet->frontend != nullptr && applet->is_completed;
+        if (!applet->process->IsTerminated() && !frontend_completed) {
             // Not terminated.
             it = std::next(it);
             continue;

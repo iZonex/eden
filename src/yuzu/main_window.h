@@ -41,6 +41,7 @@
 #endif
 
 class QtConfig;
+class DeckShell;
 class EmuThread;
 class GameList;
 class GImageInfo;
@@ -225,6 +226,11 @@ public slots:
     void AmiiboSettingsRequestExit();
     void ControllerSelectorReconfigureControllers(
         const Core::Frontend::ControllerParameters& parameters);
+    // Console-mode replacement for the interactive controller-support applet: deduces a valid
+    // controller configuration from the pads already assigned and satisfies the game's request
+    // without a modal dialog (which cannot show in Big Picture) and without the ApplySettings/
+    // SaveConfig churn that made the game re-launch the applet in a loop until it crashed.
+    void ControllerSelectorAutoConfigure(const Core::Frontend::ControllerParameters& parameters);
     void ControllerSelectorRequestExit();
     void SoftwareKeyboardInitialize(
         bool is_inline, Core::Frontend::KeyboardInitializeParameters initialize_parameters);
@@ -254,6 +260,12 @@ private:
     void InitializeWidgets();
     void InitializeDebugWidgets();
     void InitializeRecentFileMenuActions();
+
+    // Big Picture / Steam Deck console front-end.
+    void MaybeEnterBigPicture();
+    void EnterBigPicture();
+    void ExitBigPicture();
+    void OnBigPictureDeleteGame(QString path, u64 program_id, QString title);
 
     void SetDefaultUIGeometry();
     void RestoreUIState();
@@ -491,6 +503,10 @@ private:
 
     GRenderWindow* render_window = nullptr;
     GameList* game_list = nullptr;
+    DeckShell* deck_shell = nullptr;
+    // True while the Big Picture / Steam Deck console front-end is the active UI.
+    bool big_picture_active = false;
+    QAction* big_picture_action = nullptr;
     LoadingScreen* loading_screen = nullptr;
     QTimer shutdown_timer;
     OverlayDialog* shutdown_dialog{};
@@ -537,6 +553,8 @@ private:
     bool auto_muted = false;
     QTimer mouse_hide_timer;
     QTimer update_input_timer;
+    // Steam Deck: recovers dropped controllers in the menu and in-game (see deck_input.cpp).
+    QTimer deck_reconcile_timer;
 
     QString startup_icon_theme;
 

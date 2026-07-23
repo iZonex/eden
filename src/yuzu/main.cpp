@@ -9,6 +9,7 @@
 #include "dedicated_room/yuzu_room.h"
 #endif
 #ifdef __unix__
+#include "common/steam_deck.h"
 #include "qt_common/gui_settings.h"
 #endif
 
@@ -141,6 +142,12 @@ int main(int argc, char* argv[]) {
     }
 
     if (GraphicsBackend::GetForceX11() && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "xcb");
+
+    // On a Steam Deck, default to X11 (xcb): the Deck's gamescope always provides Xwayland, the
+    // AppImage does not ship the Qt Wayland platform plugin, and xcb is the path we validate on
+    // device. An explicit QT_QPA_PLATFORM still wins.
+    if (Common::IsSteamDeck() && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
         qputenv("QT_QPA_PLATFORM", "xcb");
 
     // Fix the Wayland appId. This needs to match the name of the .desktop file without the .desktop

@@ -17,19 +17,34 @@ Event::Event(KernelHelpers::ServiceContext& ctx_)
 }
 
 Event::~Event() {
-    m_event->GetReadableEvent().Close(ctx.kernel);
-    m_event->Close(ctx.kernel);
+    // m_event is null when the kernel event budget was exhausted at construction. Guard every use so
+    // exhaustion degrades gracefully (a service returns a null handle) instead of dereferencing null
+    // — the outgoing-IPC layer already skips a null handle, so this turns a hard crash into a soft
+    // failure. See ServiceContext::CreateEvent.
+    if (m_event != nullptr) {
+        m_event->GetReadableEvent().Close(ctx.kernel);
+        m_event->Close(ctx.kernel);
+    }
 }
 
 void Event::Signal(Kernel::KernelCore& kernel) noexcept {
-    m_event->Signal(kernel);
+    if (m_event != nullptr) {
+        m_event->Signal(kernel);
+    }
 }
 
 void Event::Clear(Kernel::KernelCore& kernel) noexcept {
-    m_event->Clear(kernel);
+    if (m_event != nullptr) {
+        m_event->Clear(kernel);
+    }
 }
 
 Kernel::KReadableEvent* Event::GetHandle() noexcept {
+    // Return a real null (not `&null->readable_event`, which would be a non-null garbage pointer that
+    // crashes in KHandleTable::Add) so the IPC handle-writer's `if (object)` guard skips it.
+    if (m_event == nullptr) {
+        return nullptr;
+    }
     return std::addressof(m_event->GetReadableEvent());
 }
 
