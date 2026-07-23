@@ -30,6 +30,7 @@ class DeckGameDetailPage;
 class DeckControllersPage;
 class DeckSettingsPage;
 class DeckUsersPage;
+class DeckAlbumPage;
 class GameListModel;
 class QStackedWidget;
 
@@ -109,4 +110,5 @@ private:
     DeckControllersPage* controllers_page = nullptr;
     DeckSettingsPage* settings_page = nullptr;
     DeckUsersPage* users_page = nullptr;
+    DeckAlbumPage* album_page = nullptr;
 };
