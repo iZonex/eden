@@ -703,6 +703,8 @@ bool DeckGamesPage::OnNavigate(Qt::Key key) {
             dock->SetCurrent(qMax(0, dock->Current() - 1));
         } else if (zone == Zone::Rail) {
             MoveRail(-1);
+        } else if (zone == Zone::Avatar) {
+            SetZone(Zone::Rail); // the avatar is never a dead-end: any sideways move drops to the games
         }
         return true;
     case Qt::Key_Right:
@@ -710,6 +712,8 @@ bool DeckGamesPage::OnNavigate(Qt::Key key) {
             dock->SetCurrent(qMin(DockCount - 1, dock->Current() + 1));
         } else if (zone == Zone::Rail) {
             MoveRail(1);
+        } else if (zone == Zone::Avatar) {
+            SetZone(Zone::Rail);
         }
         return true;
     default:
