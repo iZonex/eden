@@ -303,7 +303,20 @@ void DeckUsersPage::CreateUser() {
 
 void DeckUsersPage::OnActivated() {
     Rebuild();
+    if (pending_focus.IsValid()) {
+        for (std::size_t i = 0; i < users.size(); ++i) {
+            if (users[i] == pending_focus) {
+                SetSelected(static_cast<int>(i));
+                break;
+            }
+        }
+        pending_focus = Common::UUID{};
+    }
     emit HintsChanged();
+}
+
+void DeckUsersPage::FocusUser(Common::UUID uuid) {
+    pending_focus = uuid; // applied on the next OnActivated() once the sidebar list is (re)built
 }
 
 std::vector<DeckHint> DeckUsersPage::Hints() const {

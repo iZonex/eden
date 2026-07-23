@@ -3,10 +3,13 @@
 
 #pragma once
 
+#include <vector>
+
 #include <QPixmap>
 #include <QString>
 
 #include "common/common_types.h"
+#include "common/uuid.h"
 #include "yuzu/deck/deck_page.h"
 
 namespace Core {
@@ -59,7 +62,7 @@ signals:
                        bool favorited);
     void FavoriteToggled(u64 program_id);
     void OpenControllers();
-    void OpenUsers();
+    void OpenUsers(Common::UUID focus); ///< open My Page focused on the chosen user (invalid = active)
     void OpenSettings();
     void ExitRequested();
 
@@ -87,7 +90,9 @@ private:
     DockBar* dock = nullptr;
     QLabel* clock = nullptr;
     QLabel* battery = nullptr;
-    class AvatarBadge* avatar = nullptr; ///< active user's profile picture (top-left, focusable)
+    class AvatarBadge* avatar = nullptr; ///< the users' profile pictures (top-left, individually focusable)
+    std::vector<Common::UUID> avatar_uuids; ///< users in the same order as the avatar row
+    int avatar_index = 0; ///< which avatar is highlighted while the Avatar zone is focused
     QLabel* game_title = nullptr; ///< the selected game's name, above the rail
     QTimer* clock_timer = nullptr;
     QTimer* shimmer_timer = nullptr; ///< advances the selection-shimmer animation

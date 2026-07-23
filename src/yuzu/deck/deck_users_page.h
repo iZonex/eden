@@ -34,6 +34,9 @@ public:
     std::vector<DeckHint> Hints() const override;
     void OnActivated() override;
 
+    /// Select this user when the page next opens (from My Page). Invalid = keep the current/active.
+    void FocusUser(Common::UUID uuid);
+
 signals:
     void SaveConfigRequested();
 
@@ -52,4 +55,5 @@ private:
     class UserSidebar* sidebar = nullptr;
     std::vector<Common::UUID> users; ///< the valid profile UUIDs, in sidebar order
     int selected = 0;
+    Common::UUID pending_focus{}; ///< user to select on the next OnActivated() (set from My Page)
 };
