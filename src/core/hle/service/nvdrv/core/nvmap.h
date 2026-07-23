@@ -12,7 +12,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include "common/container/unordered_map.h"
+#include <unordered_map>
+#include <ankerl/unordered_dense.h>
 #include <assert.h>
 
 #include "common/bit_field.h"
@@ -161,8 +162,7 @@ private:
     std::list<std::shared_ptr<Handle>> unmap_queue{};
     std::mutex unmap_queue_lock{}; //!< Protects access to `unmap_queue`
 
-    ::Common::unordered_map<Handle::Id, std::shared_ptr<Handle>>
-        handles{};           //!< Main owning map of handles
+    std::unordered_map<Handle::Id, std::shared_ptr<Handle>> handles{}; //!< Main owning map of handles
     std::mutex handles_lock; //!< Protects access to `handles`
 
     static constexpr u32 HandleIdIncrement{
