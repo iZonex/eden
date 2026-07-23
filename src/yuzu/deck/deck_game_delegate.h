@@ -29,6 +29,12 @@ public:
         lead_indent = px;
     }
 
+    /// Program id of the title currently suspended to the HOME menu (0 = none). Its tile gets a small
+    /// "paused" badge so the user can see which game will resume.
+    void SetSuspendedProgramId(quint64 id) {
+        suspended_id = id;
+    }
+
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
@@ -36,4 +42,5 @@ public:
 private:
     int phase = 0;
     int lead_indent = 0;
+    quint64 suspended_id = 0;
 };

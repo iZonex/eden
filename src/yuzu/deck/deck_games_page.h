@@ -55,6 +55,9 @@ public:
 
     bool IsEmpty() const;
 
+    /// Mark the title currently suspended to the HOME menu (0 = none) so its tile shows a paused badge.
+    void SetSuspendedGame(u64 program_id);
+
 signals:
     /// A on a game tile — boot it straight into the game (the standard console behaviour).
     void GamePlayRequested(QString path, u64 program_id);
