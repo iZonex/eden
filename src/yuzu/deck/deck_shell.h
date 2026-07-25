@@ -57,6 +57,10 @@ public:
     /// Forward the HOME-suspended title (paused in memory, 0 = none) to the home page's tile badge.
     void SetSuspendedGame(u64 program_id);
 
+    /// Jump straight to the home menu (the games rail), e.g. when opening the HOME overlay — like a
+    /// Switch, HOME always lands on the home screen, never on whatever page was last shown.
+    void GoHome();
+
     GameListModel* Model() const {
         return model;
     }
@@ -79,7 +83,6 @@ signals:
 
 private:
     void ShowPage(QWidget* page);
-    void GoHome();
     void UpdateHints();
     void ConnectNavigator();
     void ApplyTheme(bool light); ///< swap Basic White/Black, restyle the whole tree, and persist.
