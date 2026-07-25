@@ -33,6 +33,9 @@ public:
 
     void SetHints(const std::vector<DeckHint>& hints);
 
+protected:
+    void paintEvent(QPaintEvent* event) override; ///< paint the page-coloured ground under the hints
+
 private:
     QHBoxLayout* row = nullptr;
     DeckControllerIndicator* controllers = nullptr;

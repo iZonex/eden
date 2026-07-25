@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
@@ -290,17 +291,10 @@ DeckControllersPage::DeckControllersPage(Core::HID::HIDCore& hid_core_,
     title->setStyleSheet(
         QStringLiteral("font-size: 32px; font-weight: 500; color: %1;").arg(DeckTheme::kText.name()));
     outer->addWidget(title);
+    outer->addStretch(1);
 
-    hint = new QLabel(
-        tr("Controllers connect automatically — turn one on and it shows up here. External pads are "
-           "the players; the Deck's built-in is used only when no external controller is connected."),
-        this);
-    hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("font-size: 19px; color: %1; padding-top: 8px;")
-                            .arg(DeckTheme::kTextDim.name()));
-    outer->addWidget(hint);
-    outer->addSpacing(20);
-
+    // Connected controllers, centred on the page — no explanatory banner (the Switch just shows the
+    // pads). One card per connected player; the hint bar carries the controls.
     auto* grid = new QGridLayout();
     grid->setSpacing(20);
     for (int i = 0; i < kMaxPlayers; ++i) {
@@ -308,11 +302,18 @@ DeckControllersPage::DeckControllersPage(Core::HID::HIDCore& hid_core_,
         cards[i]->setVisible(false);
         grid->addWidget(cards[i], i / 4, i % 4);
     }
-    outer->addLayout(grid, 1);
+    auto* grid_row = new QHBoxLayout();
+    grid_row->addStretch(1);
+    grid_row->addLayout(grid);
+    grid_row->addStretch(1);
+    outer->addLayout(grid_row);
 
+    outer->addSpacing(20);
     mode = new QLabel(this);
+    mode->setAlignment(Qt::AlignHCenter);
     mode->setStyleSheet(QStringLiteral("font-size: 18px; color: %1;").arg(DeckTheme::kTextDim.name()));
     outer->addWidget(mode);
+    outer->addStretch(1);
 
     // Refresh live so a pad turned on (or off) while the screen is open appears (or disappears)
     // without any user action — the reconcile does the actual connecting.
