@@ -11,10 +11,11 @@
 #include "yuzu/deck/deck_theme.h"
 
 namespace {
-// The last row holds three wide control keys: Space, Backspace, Done. The rest are literal chars.
+// The last row holds three wide control keys. Plain ASCII labels so they render in any font (unicode
+// ⌫/✓ can fall back to tofu boxes, which looked broken).
 const QString kSpaceKey = QStringLiteral("Space");
-const QString kBackKey = QStringLiteral("⌫"); // ⌫
-const QString kDoneKey = QStringLiteral("✓");  // ✓
+const QString kBackKey = QStringLiteral("Delete");
+const QString kDoneKey = QStringLiteral("Done");
 constexpr int kMaxLen = 32;
 } // namespace
 
@@ -34,6 +35,9 @@ void DeckKeyboard::Start(const QString& title_, const QString& initial) {
     text = initial.left(kMaxLen);
     row = 1;
     col = 0;
+    if (parentWidget() != nullptr) {
+        setGeometry(parentWidget()->rect()); // cover the whole page, even before a resize event
+    }
     setVisible(true);
     raise();
     update();
@@ -116,8 +120,11 @@ void DeckKeyboard::paintEvent(QPaintEvent*) {
     f.setPixelSize(26);
     p.setFont(f);
     p.setPen(DeckTheme::kText);
+    p.save();
+    p.setClipRect(field.adjusted(8, 0, -8, 0)); // never let a long name spill past the field
     p.drawText(field.adjusted(14, 0, -14, 0), Qt::AlignVCenter | Qt::AlignLeft,
                text + QStringLiteral("|"));
+    p.restore();
 
     // Keys.
     const int n_rows = static_cast<int>(rows.size());
