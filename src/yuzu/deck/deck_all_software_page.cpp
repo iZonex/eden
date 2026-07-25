@@ -4,12 +4,12 @@
 #include <algorithm>
 #include <iterator>
 
-#include <QConcatenateTablesProxyModel>
 #include <QFrame>
-#include <QHBoxLayout>
 #include <QIdentityProxyModel>
 #include <QLabel>
 #include <QListView>
+#include <QPainter>
+#include <QPainterPath>
 #include <QResizeEvent>
 #include <QSortFilterProxyModel>
 #include <QTimer>
@@ -25,6 +25,7 @@
 namespace {
 constexpr int kCardW = 200;
 constexpr int kCardH = 200;
+constexpr int kHeaderH = 108;
 
 struct SortOption {
     const char* label;
@@ -32,9 +33,9 @@ struct SortOption {
     Qt::SortOrder order;
 };
 const SortOption kSorts[] = {
-    {QT_TR_NOOP("Recently played"), -1, Qt::DescendingOrder},
-    {QT_TR_NOOP("Title (A–Z)"), Qt::DisplayRole, Qt::AscendingOrder},
-    {QT_TR_NOOP("Title (Z–A)"), Qt::DisplayRole, Qt::DescendingOrder},
+    {QT_TR_NOOP("By Recently Played"), -1, Qt::DescendingOrder},
+    {QT_TR_NOOP("By Title (A–Z)"), Qt::DisplayRole, Qt::AscendingOrder},
+    {QT_TR_NOOP("By Title (Z–A)"), Qt::DisplayRole, Qt::DescendingOrder},
 };
 constexpr int kSortCount = static_cast<int>(std::size(kSorts));
 
@@ -46,7 +47,124 @@ bool IsGameRow(const QModelIndex& idx) {
 }
 } // namespace
 
-// One-row-per-group model plus a trailing "＋ New Group" row, for the root grid.
+// The Switch All Software top bar: either centred "Software | Groups" tabs (with L/R hints) or a
+// left-aligned title, a rule beneath, and the filter + sort icons on the left with the current sort
+// on the right.
+class AllSoftHeader : public QWidget {
+public:
+    explicit AllSoftHeader(QWidget* parent) : QWidget(parent) {
+        setFixedHeight(kHeaderH);
+    }
+    void ShowTabs(bool groups_active) {
+        tabs = true;
+        groups = groups_active;
+        update();
+    }
+    void ShowTitle(const QString& t) {
+        tabs = false;
+        title = t;
+        update();
+    }
+    void SetSort(const QString& s) {
+        sort_text = s;
+        update();
+    }
+    void SetShowControls(bool b) {
+        show_controls = b;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const int cx = width() / 2;
+        const QColor blue = DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5)
+                                                     : QColor(0x6a, 0xb4, 0xff);
+        QFont f = font();
+
+        if (tabs) {
+            f.setPixelSize(26);
+            p.setFont(f);
+            const QString sw = tr("Software");
+            const QString gr = tr("Groups");
+            const QFontMetrics fm(f);
+            const int gap = 80;
+            const int sw_w = fm.horizontalAdvance(sw);
+            const int gr_w = fm.horizontalAdvance(gr);
+            const int total = sw_w + gap + gr_w;
+            const int sw_x = cx - total / 2;
+            const int gr_x = sw_x + sw_w + gap;
+            const int ty = 22;
+            // Software tab.
+            p.setPen(groups ? DeckTheme::kTextDim : blue);
+            p.drawText(QRect(sw_x, ty, sw_w, 34), Qt::AlignCenter, sw);
+            // Groups tab.
+            p.setPen(groups ? blue : DeckTheme::kTextDim);
+            p.drawText(QRect(gr_x, ty, gr_w, 34), Qt::AlignCenter, gr);
+            // Active underline.
+            p.setPen(Qt::NoPen);
+            p.setBrush(blue);
+            if (groups) {
+                p.drawRoundedRect(QRectF(gr_x, ty + 36, gr_w, 3), 1.5, 1.5);
+            } else {
+                p.drawRoundedRect(QRectF(sw_x, ty + 36, sw_w, 3), 1.5, 1.5);
+            }
+            // L / R hints on either side.
+            p.setPen(Qt::NoPen);
+            p.setBrush(DeckTheme::kSurface);
+            const auto draw_lr = [&](int x, const QString& s) {
+                const QRectF r(x, ty + 2, 30, 26);
+                p.setPen(Qt::NoPen);
+                p.setBrush(DeckTheme::kSurface);
+                p.drawRoundedRect(r, 6, 6);
+                p.setPen(DeckTheme::kTextDim);
+                QFont sf = f;
+                sf.setPixelSize(18);
+                p.setFont(sf);
+                p.drawText(r, Qt::AlignCenter, s);
+                p.setFont(f);
+            };
+            draw_lr(sw_x - 54, QStringLiteral("L"));
+            draw_lr(gr_x + gr_w + 24, QStringLiteral("R"));
+        } else {
+            f.setPixelSize(30);
+            p.setFont(f);
+            p.setPen(DeckTheme::kText);
+            p.drawText(QRect(4, 18, width() - 8, 40), Qt::AlignLeft | Qt::AlignVCenter, title);
+        }
+
+        // Rule.
+        QColor rule = DeckTheme::kText;
+        rule.setAlpha(40);
+        p.setPen(QPen(rule, 1));
+        p.drawLine(0, 66, width(), 66);
+
+        if (show_controls) {
+            // Filter + sort icons, left, below the rule.
+            const int isz = 30;
+            const QPixmap filter = DeckTheme::Icon(QStringLiteral("filter"), isz, DeckTheme::kTextDim);
+            const QPixmap sort = DeckTheme::Icon(QStringLiteral("sort"), isz, DeckTheme::kTextDim);
+            p.drawPixmap(QPointF(2, 76), filter);
+            p.drawPixmap(QPointF(2 + isz + 14, 76), sort);
+            // Current sort, right.
+            f.setPixelSize(20);
+            p.setFont(f);
+            p.setPen(DeckTheme::kTextDim);
+            p.drawText(QRect(width() - 360, 74, 356, 30), Qt::AlignRight | Qt::AlignVCenter,
+                       sort_text);
+        }
+    }
+
+private:
+    bool tabs = true;
+    bool groups = false;
+    bool show_controls = true;
+    QString title;
+    QString sort_text;
+};
+
+// One-row-per-group model plus a trailing "＋ New Group" row, for the Groups tab.
 class GroupsModel : public QAbstractListModel {
 public:
     GroupsModel(const DeckGroups* g, QObject* parent) : QAbstractListModel(parent), groups(g) {}
@@ -137,42 +255,21 @@ DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* 
     sorted->setDynamicSortFilter(true);
 
     groups_model = new GroupsModel(&groups, this);
-
-    auto* concat = new QConcatenateTablesProxyModel(this);
-    concat->addSourceModel(groups_model);
-    concat->addSourceModel(sorted);
-    root_model = concat;
-
     group_filter = new GroupFilterProxy(this);
     group_filter->setSourceModel(sorted);
-
     auto* mp = new MemberProxy(this);
     mp->setSourceModel(sorted);
     member_proxy = mp;
 
     auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(64, 40, 64, 24);
-    outer->setSpacing(14);
+    outer->setContentsMargins(64, 34, 64, 24);
+    outer->setSpacing(6);
 
-    auto* header = new QHBoxLayout();
-    title = new QLabel(tr("All Software"), this);
-    header->addWidget(title);
-    header->addStretch();
-    selected_name = new QLabel(this);
-    selected_name->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-    header->addWidget(selected_name, 1);
-    sort_label = new QLabel(this);
-    sort_label->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-    header->addWidget(sort_label);
-    outer->addLayout(header);
-
-    auto* rule = new QFrame(this);
-    rule->setFrameShape(QFrame::HLine);
-    rule->setFixedHeight(1);
-    outer->addWidget(rule);
+    header = new AllSoftHeader(this);
+    outer->addWidget(header);
 
     grid = new QListView(this);
-    grid->setModel(root_model);
+    grid->setModel(sorted);
     delegate = new DeckGameDelegate(grid);
     delegate->SetCardSize(kCardW, kCardH);
     grid->setItemDelegate(delegate);
@@ -188,25 +285,29 @@ DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* 
     grid->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     grid->setFocusPolicy(Qt::NoFocus);
     grid->setFrameShape(QFrame::NoFrame);
+    grid->setViewportMargins(0, 12, 0, 0); // leave room for the icons row drawn in the header
     grid->setStyleSheet(QStringLiteral("QListView{background:transparent;}"));
     outer->addWidget(grid, 1);
 
     connect(grid, &QAbstractItemView::clicked, this, [this](const QModelIndex&) { OnAccept(); });
+
+    // Floating name pill under the selected tile (Switch style).
+    name_pill = new QLabel(this);
+    name_pill->setAlignment(Qt::AlignCenter);
+    name_pill->setVisible(false);
 
     keyboard = new DeckKeyboard(this);
     keyboard->hide();
     connect(keyboard, &DeckKeyboard::Accepted, this, [this](QString text) {
         if (renaming) {
             groups.RenameGroup(current_group, text);
+            RefreshGroups();
+            UpdateHeader();
         } else {
             current_group = groups.CreateGroup(text);
             RefreshGroups();
-            SetView(View::Group);
-            emit HintsChanged();
-            return;
+            SetView(View::GroupDetail);
         }
-        RefreshGroups();
-        UpdateHeader();
         emit HintsChanged();
     });
     connect(keyboard, &DeckKeyboard::Cancelled, this, [this] { emit HintsChanged(); });
@@ -229,19 +330,22 @@ DeckAllSoftwarePage::~DeckAllSoftwarePage() = default;
 void DeckAllSoftwarePage::resizeEvent(QResizeEvent* event) {
     DeckPage::resizeEvent(event);
     keyboard->setGeometry(rect());
+    PositionNamePill();
 }
 
 void DeckAllSoftwarePage::ApplyTheme() {
     QPalette pal = palette();
     pal.setColor(QPalette::Window, DeckTheme::kBackground);
     setPalette(pal);
-    title->setStyleSheet(QStringLiteral("font-size:34px; font-weight:500; color:%1;")
-                             .arg(DeckTheme::kText.name()));
-    sort_label->setStyleSheet(
-        QStringLiteral("font-size:22px; color:%1;").arg(DeckTheme::kTextDim.name()));
-    selected_name->setStyleSheet(
-        QStringLiteral("font-size:22px; color:%1; padding-right:18px;")
-            .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff")));
+    const QString blue =
+        DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff");
+    name_pill->setStyleSheet(
+        QStringLiteral("background:%1; color:%2; border-radius:12px; padding:6px 16px; "
+                       "font-size:22px;")
+            .arg(DeckTheme::kSurface.name(), blue));
+    if (header != nullptr) {
+        header->update();
+    }
     if (keyboard != nullptr) {
         keyboard->update();
     }
@@ -257,6 +361,31 @@ u64 DeckAllSoftwarePage::CurrentProgramId() const {
     return idx.isValid() ? ProgramIdOf(idx) : 0;
 }
 
+void DeckAllSoftwarePage::PositionNamePill() {
+    const QModelIndex idx = grid->currentIndex();
+    const bool is_game = idx.isValid() && !idx.data(DeckGroupRole).isValid() &&
+                         !idx.data(DeckNewGroupRole).toBool();
+    if (!is_game || keyboard->isVisible()) {
+        name_pill->setVisible(false);
+        return;
+    }
+    QString name = idx.data(GameListItemPath::TitleRole).toString();
+    if (name.isEmpty()) {
+        name = idx.data(Qt::DisplayRole).toString();
+    }
+    name_pill->setText(name);
+    name_pill->adjustSize();
+    // Map the tile rect (viewport coords) into the page so the pill sits just under the tile.
+    const QRect vr = grid->visualRect(idx);
+    const QPoint tl = grid->viewport()->mapTo(this, vr.topLeft());
+    int x = tl.x() + vr.width() / 2 - name_pill->width() / 2;
+    x = std::clamp(x, 8, width() - name_pill->width() - 8);
+    int y = tl.y() + vr.height() - name_pill->height() / 2;
+    name_pill->move(x, y);
+    name_pill->setVisible(true);
+    name_pill->raise();
+}
+
 void DeckAllSoftwarePage::RefreshGroups() {
     groups_model->Refresh();
     static_cast<GroupFilterProxy*>(group_filter)->SetGroup(&groups, current_group);
@@ -268,17 +397,30 @@ void DeckAllSoftwarePage::SetView(View v) {
     view = v;
     confirming_delete = false;
     switch (v) {
-    case View::Root:
-        current_group = -1;
-        grid->setModel(root_model);
+    case View::Software:
+        grid->setModel(sorted);
+        header->ShowTabs(false);
+        header->SetShowControls(true);
         break;
-    case View::Group:
+    case View::Groups:
+        groups_model->Refresh();
+        grid->setModel(groups_model);
+        header->ShowTabs(true);
+        header->SetShowControls(false);
+        break;
+    case View::GroupDetail:
         static_cast<GroupFilterProxy*>(group_filter)->SetGroup(&groups, current_group);
         grid->setModel(group_filter);
+        header->ShowTitle(current_group >= 0 && current_group < static_cast<int>(groups.Count())
+                              ? groups.Groups()[current_group].name
+                              : tr("Group"));
+        header->SetShowControls(true);
         break;
     case View::AddGames:
         static_cast<MemberProxy*>(member_proxy)->SetGroup(&groups, current_group);
         grid->setModel(member_proxy);
+        header->ShowTitle(tr("Select Software to Add"));
+        header->SetShowControls(true);
         break;
     }
     if (grid->model()->rowCount() > 0) {
@@ -286,40 +428,16 @@ void DeckAllSoftwarePage::SetView(View v) {
         grid->scrollToTop();
     }
     UpdateHeader();
+    PositionNamePill();
     emit HintsChanged();
 }
 
 void DeckAllSoftwarePage::UpdateHeader() {
-    QString head = tr("All Software");
-    if (view == View::Group && current_group >= 0 &&
-        current_group < static_cast<int>(groups.Count())) {
-        head = groups.Groups()[current_group].name;
-    } else if (view == View::AddGames && current_group >= 0 &&
-               current_group < static_cast<int>(groups.Count())) {
-        head = tr("Add to %1").arg(groups.Groups()[current_group].name);
-    }
-    title->setText(head);
-
+    header->SetSort(tr(kSorts[sort_mode].label));
     if (confirming_delete) {
-        sort_label->setText(tr("Delete group?  + : delete   B: cancel"));
-    } else if (view == View::Root) {
-        sort_label->setText(tr("Sort: %1").arg(tr(kSorts[sort_mode].label)));
-    } else if (view == View::AddGames) {
-        sort_label->setText(tr("A: toggle   X: done"));
-    } else {
-        sort_label->setText(tr("X: add games   Y: rename   +: delete"));
+        header->ShowTitle(tr("Delete this group?  + : delete   B: cancel"));
     }
-
-    const QModelIndex idx = grid->currentIndex();
-    QString name;
-    if (idx.isValid() && !idx.data(DeckGroupRole).isValid() &&
-        !idx.data(DeckNewGroupRole).toBool()) {
-        name = idx.data(GameListItemPath::TitleRole).toString();
-        if (name.isEmpty()) {
-            name = idx.data(Qt::DisplayRole).toString();
-        }
-    }
-    selected_name->setText(name);
+    PositionNamePill();
 }
 
 void DeckAllSoftwarePage::CycleSort() {
@@ -340,6 +458,7 @@ void DeckAllSoftwarePage::CycleSort() {
 
 void DeckAllSoftwarePage::StartCreateGroup() {
     renaming = false;
+    name_pill->setVisible(false);
     keyboard->Start(tr("Name the group"), QString());
     emit HintsChanged();
 }
@@ -349,6 +468,7 @@ void DeckAllSoftwarePage::StartRenameGroup() {
         return;
     }
     renaming = true;
+    name_pill->setVisible(false);
     keyboard->Start(tr("Rename group"), groups.Groups()[current_group].name);
     emit HintsChanged();
 }
@@ -360,7 +480,7 @@ void DeckAllSoftwarePage::DeleteCurrentGroup() {
     groups.DeleteGroup(current_group);
     current_group = -1;
     RefreshGroups();
-    SetView(View::Root);
+    SetView(View::Groups);
 }
 
 void DeckAllSoftwarePage::ToggleCurrentMembership() {
@@ -370,13 +490,15 @@ void DeckAllSoftwarePage::ToggleCurrentMembership() {
     }
     groups.SetMembership(current_group, pid, !groups.IsMember(current_group, pid));
     static_cast<MemberProxy*>(member_proxy)->SetGroup(&groups, current_group);
-    grid->viewport()->update(); // reflect the check immediately
+    grid->viewport()->update();
 }
 
 void DeckAllSoftwarePage::OnActivated() {
     shimmer->start();
     keyboard->hide();
-    SetView(View::Root);
+    sort_mode = 0;
+    sorted->sort(-1);
+    SetView(View::Software);
 }
 
 bool DeckAllSoftwarePage::OnNavigate(Qt::Key key) {
@@ -428,7 +550,7 @@ bool DeckAllSoftwarePage::OnNavigate(Qt::Key key) {
     const QModelIndex idx = grid->model()->index(next, 0);
     grid->setCurrentIndex(idx);
     grid->scrollTo(idx, QAbstractItemView::EnsureVisible);
-    UpdateHeader();
+    PositionNamePill();
     return true;
 }
 
@@ -445,21 +567,20 @@ bool DeckAllSoftwarePage::OnAccept() {
     if (!idx.isValid()) {
         return true;
     }
-    if (view == View::Root && idx.data(DeckNewGroupRole).toBool()) {
-        StartCreateGroup();
-        return true;
-    }
-    if (view == View::Root && idx.data(DeckGroupRole).isValid()) {
-        current_group = idx.data(DeckGroupRole).toInt();
-        SetView(View::Group);
+    if (view == View::Groups) {
+        if (idx.data(DeckNewGroupRole).toBool()) {
+            StartCreateGroup();
+        } else if (idx.data(DeckGroupRole).isValid()) {
+            current_group = idx.data(DeckGroupRole).toInt();
+            SetView(View::GroupDetail);
+        }
         return true;
     }
     if (view == View::AddGames) {
         ToggleCurrentMembership();
         return true;
     }
-    // A game tile (root or inside a group): launch it.
-    if (IsGameRow(idx)) {
+    if (IsGameRow(idx)) { // Software or GroupDetail: launch
         const QString path = idx.data(GameListItemPath::FullPathRole).toString();
         const u64 program_id = ProgramIdOf(idx);
         if (!path.isEmpty()) {
@@ -476,32 +597,39 @@ bool DeckAllSoftwarePage::OnBack() {
     }
     if (confirming_delete) {
         confirming_delete = false;
-        UpdateHeader();
-        emit HintsChanged();
+        SetView(view); // redraw header without the confirm banner
         return true;
     }
-    if (view == View::AddGames) {
-        SetView(View::Group);
+    switch (view) {
+    case View::AddGames:
+        SetView(View::GroupDetail);
         return true;
-    }
-    if (view == View::Group) {
-        SetView(View::Root);
+    case View::GroupDetail:
+        SetView(View::Groups);
         return true;
+    case View::Groups:
+        SetView(View::Software);
+        return true;
+    case View::Software:
+    default:
+        shimmer->stop();
+        name_pill->setVisible(false);
+        return false; // leave to the home menu
     }
-    shimmer->stop();
-    return false; // Root: let the shell go home
 }
 
 bool DeckAllSoftwarePage::OnPrimaryAction() { // X
     if (keyboard->isVisible()) {
         return true;
     }
-    if (view == View::Root) {
-        CycleSort();
-    } else if (view == View::Group) {
-        SetView(View::AddGames);
-    } else if (view == View::AddGames) {
-        SetView(View::Group);
+    if (view == View::Software || view == View::GroupDetail || view == View::AddGames) {
+        if (view == View::GroupDetail) {
+            SetView(View::AddGames);
+        } else if (view == View::AddGames) {
+            SetView(View::GroupDetail);
+        } else {
+            CycleSort();
+        }
     }
     return true;
 }
@@ -511,7 +639,7 @@ bool DeckAllSoftwarePage::OnSecondaryAction() { // Y
         keyboard->Cancel();
         return true;
     }
-    if (view == View::Group) {
+    if (view == View::GroupDetail) {
         StartRenameGroup();
     }
     return true;
@@ -522,10 +650,26 @@ bool DeckAllSoftwarePage::OnStart() { // +
         keyboard->Accept();
         return true;
     }
-    if (view == View::Group) {
+    if (view == View::GroupDetail) {
         confirming_delete = true;
         UpdateHeader();
         emit HintsChanged();
+    }
+    return true;
+}
+
+// L / R switch the Software <-> Groups tabs, like the Switch.
+bool DeckAllSoftwarePage::OnPageUp() {
+    if (!keyboard->isVisible() && (view == View::Software || view == View::Groups)) {
+        SetView(View::Software);
+        return true;
+    }
+    return true;
+}
+bool DeckAllSoftwarePage::OnPageDown() {
+    if (!keyboard->isVisible() && (view == View::Software || view == View::Groups)) {
+        SetView(View::Groups);
+        return true;
     }
     return true;
 }
@@ -545,14 +689,20 @@ std::vector<DeckHint> DeckAllSoftwarePage::Hints() const {
                 {QStringLiteral("X"), tr("Done")},
                 {QStringLiteral("B"), tr("Back")}};
     }
-    if (view == View::Group) {
+    if (view == View::GroupDetail) {
         return {{QStringLiteral("A"), tr("Play")},
                 {QStringLiteral("X"), tr("Add games")},
                 {QStringLiteral("Y"), tr("Rename")},
                 {QStringLiteral("+"), tr("Delete")},
                 {QStringLiteral("B"), tr("Back")}};
     }
-    return {{QStringLiteral("A"), tr("Open / Play")},
+    if (view == View::Groups) {
+        return {{QStringLiteral("A"), tr("Open")},
+                {QStringLiteral("L/R"), tr("Software / Groups")},
+                {QStringLiteral("B"), tr("Back")}};
+    }
+    return {{QStringLiteral("A"), tr("Play")},
             {QStringLiteral("X"), tr("Sort")},
+            {QStringLiteral("L/R"), tr("Software / Groups")},
             {QStringLiteral("B"), tr("Back")}};
 }
