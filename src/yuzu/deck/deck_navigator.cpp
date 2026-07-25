@@ -93,41 +93,13 @@ void DeckNavigator::Poll() {
         return down && !was;
     };
 
-    // --- Directional: D-pad or left stick, whichever is active, with autorepeat. ---
-    // For the stick, read the analog value directly and apply a generous deadzone instead of trusting
-    // the npad's pre-thresholded StickL direction bits — those trip on tiny drift, which made a
-    // slightly off-centre (or drifting) pad spam the menu with phantom moves.
-    s32 sx = 0, sy = 0;
-    {
-        static constexpr std::array stick_ids{
-            Core::HID::NpadIdType::Handheld, Core::HID::NpadIdType::Player1,
-            Core::HID::NpadIdType::Player2,  Core::HID::NpadIdType::Player3,
-            Core::HID::NpadIdType::Player4,  Core::HID::NpadIdType::Player5,
-            Core::HID::NpadIdType::Player6,  Core::HID::NpadIdType::Player7,
-            Core::HID::NpadIdType::Player8,
-        };
-        s64 best = 0;
-        for (const auto npad_id : stick_ids) {
-            const auto* const c = hid_core.GetEmulatedController(npad_id);
-            if (c == nullptr || !c->IsConnected()) {
-                continue;
-            }
-            const auto st = c->GetSticks().left;
-            const s64 mag = static_cast<s64>(st.x) * st.x + static_cast<s64>(st.y) * st.y;
-            if (mag > best) {
-                best = mag;
-                sx = st.x;
-                sy = st.y;
-            }
-        }
-    }
-    // ~0.3 of the ±32767 range. The emulated controller already deadzones drift out of this value
-    // (games play fine), so this just asks for a deliberate push without feeling sluggish.
-    constexpr s32 kStickDeadzone = 10000;
-    const bool up = is_down(BtnUp) || sy > kStickDeadzone;
-    const bool down = is_down(BtnDown) || sy < -kStickDeadzone;
-    const bool left = is_down(BtnLeft) || sx < -kStickDeadzone;
-    const bool right = is_down(BtnRight) || sx > kStickDeadzone;
+    // --- Directional: D-pad or left stick, whichever is active, with autorepeat. The stick uses the
+    // npad's pre-thresholded StickL direction bits — those are properly deadzoned and stable, unlike
+    // the raw analog value which is noisy near centre. ---
+    const bool up = is_down(BtnUp) || is_down(BtnStickLUp);
+    const bool down = is_down(BtnDown) || is_down(BtnStickLDown);
+    const bool left = is_down(BtnLeft) || is_down(BtnStickLLeft);
+    const bool right = is_down(BtnRight) || is_down(BtnStickLRight);
 
     // Vertical takes priority over horizontal to avoid diagonal drift on a loose stick.
     int dir = 0;
