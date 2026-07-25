@@ -1515,6 +1515,10 @@ void MainWindow::EnterBigPicture() {
         const QSignalBlocker blocker(big_picture_action);
         big_picture_action->setChecked(true);
     }
+    // Silence the desktop controller hotkeys — several quit the game or the whole app on a button
+    // combo (Exit = Home+Minus, Stop = L+Plus+Minus, Pause = Home+Plus) and would hijack the console
+    // shell's own Select+Start-to-HOME gesture. The console provides its controls itself.
+    hotkey_registry.SetControllerHotkeysEnabled(false);
 
     // Hide the desktop chrome and library; the shell owns the whole window.
     menuBar()->hide();
@@ -1542,6 +1546,7 @@ void MainWindow::ExitBigPicture() {
         const QSignalBlocker blocker(big_picture_action);
         big_picture_action->setChecked(false);
     }
+    hotkey_registry.SetControllerHotkeysEnabled(true); // restore desktop controller hotkeys
 
     deck_shell->Deactivate();
     deck_shell->hide();
