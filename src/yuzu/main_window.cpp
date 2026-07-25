@@ -3439,8 +3439,14 @@ void MainWindow::SuspendGameToBigPicture() {
         deck_reconcile_timer.start();
     }
     deck_shell->SetSuspendedGame(suspended_program_id); // badge the suspended title's tile
+    // The render view and the shell are siblings in one layout, shown one at a time — hide the frozen
+    // game surface so the library shows full-screen (not split beside it), the same swap BootGame /
+    // ShutdownGame do. The paused emu thread isn't presenting, so hiding the surface is safe.
+    render_window->hide();
+    loading_screen->hide();
     deck_shell->show();
     deck_shell->raise();
+    deck_shell->GoHome(); // HOME always lands on the home menu, never a stale inner page
     deck_shell->Activate();
 }
 
@@ -3453,6 +3459,9 @@ void MainWindow::ResumeSuspendedGame() {
     // Hand the window back to the render view and stop reconciling (never remap mid-game).
     deck_shell->Deactivate();
     deck_shell->hide();
+    render_window->show();
+    render_window->raise();
+    render_window->setFocus();
     deck_reconcile_timer.stop();
     OnStartGame(); // SetRunning(true) — continue exactly where the title was paused
 }
