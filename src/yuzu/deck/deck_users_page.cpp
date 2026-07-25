@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <vector>
 #include <fmt/format.h>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -171,11 +172,27 @@ DeckUsersPage::DeckUsersPage(Core::System& system_, QWidget* parent)
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
+    // Header: a users icon + "Users" title, with a full-width rule beneath — the same chrome as the
+    // other console pages, so it reads as one system.
+    auto* head_row = new QHBoxLayout();
+    head_row->setContentsMargins(40, 24, 40, 12);
+    head_row->setSpacing(14);
+    auto* head_icon = new QLabel(this);
+    head_icon->setPixmap(DeckTheme::Icon(QStringLiteral("users"), 32, DeckTheme::kText));
+    head_row->addWidget(head_icon, 0, Qt::AlignVCenter);
     title = new QLabel(tr("Users"), this);
-    title->setStyleSheet(QStringLiteral("font-size: 30px; font-weight: 500; color: %1; "
-                                        "padding: 26px 0 18px 40px;")
-                             .arg(DeckTheme::kText.name()));
-    root->addWidget(title);
+    title->setStyleSheet(
+        QStringLiteral("font-size: 32px; font-weight: 500; color: %1;").arg(DeckTheme::kText.name()));
+    head_row->addWidget(title, 0, Qt::AlignVCenter);
+    head_row->addStretch();
+    root->addLayout(head_row);
+    auto* head_rule = new QFrame(this);
+    head_rule->setObjectName(QStringLiteral("DeckUsersRule"));
+    head_rule->setFrameShape(QFrame::HLine);
+    head_rule->setFixedHeight(1);
+    head_rule->setStyleSheet(
+        QStringLiteral("background:%1; border:none;").arg(DeckTheme::kDivider.name()));
+    root->addWidget(head_rule);
 
     auto* body = new QHBoxLayout();
     body->setContentsMargins(0, 0, 0, 0);

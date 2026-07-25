@@ -161,18 +161,19 @@ private:
 
 /// The Deck's battery charge as a "NN%" string for the Switch-style status cluster, or empty when no
 /// battery is present (e.g. desktop testing). Read straight from sysfs so it needs no extra deps.
-QString ReadBatteryText() {
+/// Battery charge 0-100, or -1 when there is no battery (desktop testing).
+int ReadBatteryPercent() {
     for (const auto* name : {"BAT0", "BAT1", "BAT2"}) {
         QFile f(QStringLiteral("/sys/class/power_supply/%1/capacity").arg(QLatin1String(name)));
         if (f.open(QIODevice::ReadOnly)) {
             bool ok = false;
             const int pct = QString::fromUtf8(f.readAll()).trimmed().toInt(&ok);
             if (ok && pct > 0) {
-                return QStringLiteral("%1%").arg(pct);
+                return pct;
             }
         }
     }
-    return {};
+    return -1;
 }
 
 /// Shows only real games in the console library: Game-type rows that actually have box art. This
@@ -446,19 +447,90 @@ protected:
             p.setPen(QPen(QBrush(lg), 3));
             p.drawEllipse(slot.adjusted(2, 2, -2, -2));
         }
-        // "<Name>'s Page" label BELOW the avatar, in Switch blue.
-        QFont f = font();
-        f.setPixelSize(20);
-        p.setFont(f);
-        p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
-        p.drawText(QRectF(0, kRing + kGap, width(), kLabelH), Qt::AlignLeft | Qt::AlignVCenter,
-                   tr("%1's Page").arg(name));
+        // "<Name>'s Page" label BELOW the avatar — only while focused, like the Switch (the name is
+        // not shown on the resting home screen).
+        if (focused) {
+            QFont f = font();
+            f.setPixelSize(20);
+            p.setFont(f);
+            p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
+            p.drawText(QRectF(0, kRing + kGap, width(), kLabelH), Qt::AlignLeft | Qt::AlignVCenter,
+                       tr("%1's Page").arg(name));
+        }
     }
 
 private:
     QPixmap avatar;
     QString name;
     bool focused = false;
+};
+
+/// The Switch home status cluster: the time, a wifi glyph, and a battery graphic. Custom-painted so
+/// it matches the reference icons rather than plain text.
+class StatusCluster : public QWidget {
+public:
+    explicit StatusCluster(QWidget* parent = nullptr) : QWidget(parent) {
+        setFixedHeight(38);
+        Refit();
+    }
+    void SetData(const QString& t, int battery_pct) {
+        time_text = t;
+        battery = battery_pct;
+        Refit();
+        update();
+    }
+
+protected:
+    void Refit() {
+        QFont f = font();
+        f.setPixelSize(28);
+        setFixedWidth(QFontMetrics(f).horizontalAdvance(time_text) + 18 + 28 + 14 + 42);
+    }
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const int h = height();
+        qreal x = 0;
+        // Time.
+        QFont f = font();
+        f.setPixelSize(28);
+        p.setFont(f);
+        p.setPen(DeckTheme::kText);
+        const int tw = QFontMetrics(f).horizontalAdvance(time_text);
+        p.drawText(QRectF(x, 0, tw, h), Qt::AlignVCenter | Qt::AlignLeft, time_text);
+        x += tw + 18;
+        // Wifi: three stacked arcs + a dot, pointing up.
+        {
+            const qreal cx = x + 13, cy = h * 0.72;
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(DeckTheme::kTextDim, 2.4, Qt::SolidLine, Qt::RoundCap));
+            for (int i = 1; i <= 3; ++i) {
+                const qreal rr = 4.5 * i;
+                p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), 40 * 16, 100 * 16);
+            }
+            p.setBrush(DeckTheme::kTextDim);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(QPointF(cx, cy), 1.8, 1.8);
+            x += 28 + 14;
+        }
+        // Battery graphic.
+        if (battery >= 0) {
+            const qreal bw = 36, bh = 18, by = (h - bh) / 2.0;
+            const QRectF bodyr(x, by, bw, bh);
+            p.setPen(QPen(DeckTheme::kTextDim, 2));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(bodyr, 4, 4);
+            p.setBrush(DeckTheme::kTextDim);
+            p.setPen(Qt::NoPen);
+            p.drawRoundedRect(QRectF(x + bw + 1, by + bh * 0.28, 3, bh * 0.44), 1.5, 1.5); // nub
+            const qreal fillw = std::max(0.0, (bw - 6) * battery / 100.0);
+            p.drawRoundedRect(QRectF(x + 3, by + 3, fillw, bh - 6), 2, 2); // fill
+        }
+    }
+
+private:
+    QString time_text;
+    int battery = -1;
 };
 
 namespace {
@@ -514,24 +586,17 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     avatar = new AvatarBadge(topbar); // active user's avatar + name (top-left); focusable → Users
     top_row->addWidget(avatar, 0, Qt::AlignTop);
     top_row->addStretch();
-    clock = new QLabel(topbar);
-    clock->setStyleSheet(
-        QStringLiteral("font-size:28px; font-weight: 500; color:%1;").arg(DeckTheme::kText.name()));
-    top_row->addWidget(clock, 0, Qt::AlignTop);
-    battery = new QLabel(topbar);
-    battery->setStyleSheet(QStringLiteral("font-size:21px; font-weight: 500; color:%1; padding-left:16px;")
-                               .arg(DeckTheme::kTextDim.name()));
-    top_row->addWidget(battery, 0, Qt::AlignTop);
+    status = new StatusCluster(topbar); // time + wifi + battery graphic
+    top_row->addWidget(status, 0, Qt::AlignTop);
     outer->addWidget(topbar);
 
     outer->addStretch();
 
-    // The selected game's name, shown above the rail in Switch blue (only the current selection).
+    // The selected game's name floats in a rounded pill below its tile (Switch style), only while a
+    // tile is focused — not a permanent label. Positioned in UpdateGameTitle; not in the layout.
     game_title = new QLabel(this);
-    game_title->setStyleSheet(
-        QStringLiteral("font-size:26px; font-weight: 500; color:%1; padding: 2px 0 10px 96px;")
-            .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff")));
-    outer->addWidget(game_title);
+    game_title->setAlignment(Qt::AlignCenter);
+    game_title->setVisible(false);
 
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
@@ -614,10 +679,8 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     clock_timer = new QTimer(this);
     clock_timer->setInterval(10'000);
     const auto update_status = [this] {
-        clock->setText(QTime::currentTime().toString(QStringLiteral("h:mm AP"))); // 2:22 PM, like the Switch
-        const QString bat = ReadBatteryText();
-        battery->setText(bat);
-        battery->setVisible(!bat.isEmpty());
+        status->SetData(QTime::currentTime().toString(QStringLiteral("h:mm AP")),
+                        ReadBatteryPercent());
         auto& pm = system.GetProfileManager();
         active_uuid = pm.GetLastOpenedUser();
         avatar->SetAvatar(UserAvatar(active_uuid, 52), ActiveUserName(pm, active_uuid));
@@ -652,16 +715,11 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
 DeckGamesPage::~DeckGamesPage() = default;
 
 void DeckGamesPage::ApplyTheme() {
-    // Re-apply the status-strip label colours for the new theme (custom-painted widgets — tiles,
-    // dock, avatar — read DeckTheme live and repaint on their own).
-    clock->setStyleSheet(
-        QStringLiteral("font-size:28px; font-weight: 500; color:%1;").arg(DeckTheme::kText.name()));
-    battery->setStyleSheet(
-        QStringLiteral("font-size:21px; font-weight: 500; color:%1; padding-left:16px;")
-            .arg(DeckTheme::kTextDim.name()));
-    game_title->setStyleSheet(
-        QStringLiteral("font-size:26px; font-weight: 500; color:%1; padding: 2px 0 10px 96px;")
-            .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff")));
+    // The status cluster, tiles, dock and avatar are custom-painted and read DeckTheme live, so they
+    // just need a repaint on a theme change.
+    if (status != nullptr) {
+        status->update();
+    }
 }
 
 bool DeckGamesPage::IsEmpty() const {
@@ -703,6 +761,7 @@ void DeckGamesPage::MoveRail(int delta) {
     // keeps the item visible.
     rail->scrollTo(idx, grid_mode ? QAbstractItemView::EnsureVisible
                                   : QAbstractItemView::PositionAtCenter);
+    UpdateGameTitle(); // reposition the name pill after the scroll settles
 }
 
 int DeckGamesPage::GridColumns() const {
@@ -773,15 +832,34 @@ void DeckGamesPage::UpdateGameTitle() {
     if (game_title == nullptr) {
         return;
     }
-    const QModelIndex idx = CurrentGameIndex();
-    QString t;
-    if (!IsEmpty() && idx.isValid()) {
-        t = idx.data(GameListItemPath::TitleRole).toString();
-        if (t.isEmpty()) {
-            t = idx.data(Qt::DisplayRole).toString();
-        }
+    const QModelIndex idx = rail->currentIndex();
+    // Only over a focused game tile (not the dock/avatar zones, not the All Software button).
+    const bool show = zone == Zone::Rail && !grid_mode && idx.isValid() &&
+                      !idx.data(DeckAllSoftwareRole).toBool();
+    if (!show) {
+        game_title->setVisible(false);
+        return;
     }
+    QString t = idx.data(GameListItemPath::TitleRole).toString();
+    if (t.isEmpty()) {
+        t = idx.data(Qt::DisplayRole).toString();
+    }
+    const QString blue =
+        DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff");
+    game_title->setStyleSheet(
+        QStringLiteral("background:%1; color:%2; border-radius:12px; padding:6px 18px; font-size:22px;")
+            .arg(DeckTheme::kSurface.name(), blue));
     game_title->setText(t);
+    game_title->adjustSize();
+    // Position the pill centred under the focused tile.
+    const QRect vr = rail->visualRect(idx);
+    const QPoint tl = rail->viewport()->mapTo(this, vr.topLeft());
+    int x = tl.x() + vr.width() / 2 - game_title->width() / 2;
+    x = std::clamp(x, 8, width() - game_title->width() - 8);
+    const int y = tl.y() + vr.height() - game_title->height() / 2;
+    game_title->move(x, y);
+    game_title->setVisible(true);
+    game_title->raise();
 }
 
 void DeckGamesPage::OnActivated() {
