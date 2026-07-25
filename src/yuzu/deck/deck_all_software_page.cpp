@@ -285,7 +285,6 @@ DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* 
     grid->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     grid->setFocusPolicy(Qt::NoFocus);
     grid->setFrameShape(QFrame::NoFrame);
-    grid->setViewportMargins(0, 12, 0, 0); // leave room for the icons row drawn in the header
     grid->setStyleSheet(QStringLiteral("QListView{background:transparent;}"));
     outer->addWidget(grid, 1);
 
