@@ -92,6 +92,12 @@ public:
     ControllerShortcut* GetControllerHotkey(const std::string& group, const std::string& action,
                                             Core::HID::EmulatedController* controller);
 
+    /// Enable or disable every registered controller hotkey at once. The console (Big Picture) shell
+    /// drives its own gamepad gestures (e.g. Select+Start suspends to HOME), so the desktop controller
+    /// hotkeys — several of which quit the game or the whole app (Exit = Home+Minus, Stop =
+    /// L+Plus+Minus) — must be silenced there or they hijack the same button combos.
+    void SetControllerHotkeysEnabled(bool enable);
+
     /**
      * Returns a QKeySequence object whose signal can be connected to QAction::setShortcut.
      *
