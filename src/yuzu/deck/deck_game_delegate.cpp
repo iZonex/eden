@@ -272,20 +272,23 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->drawRoundedRect(QRectF(cx + g, cy - bh / 2, bw, bh), bw * 0.4, bw * 0.4);
     }
 
-    // In the add-to-group picker, a member game wears a green check at the top-left of its art.
+    // In the add-to-group picker, a member game wears a blue checkbox at the top-right of its art
+    // (matching the Switch's "Select Software to Add" screen).
     if (index.data(DeckGroupMemberRole).toBool()) {
-        const qreal d = art_rect.width() / 4.2;
-        const QRectF badge(art_rect.left() + 10, art_rect.top() + 10, d, d);
+        const qreal d = art_rect.width() / 4.6;
+        const QRectF badge(art_rect.right() - d - 8, art_rect.top() + 8, d, d);
+        QPainterPath box;
+        box.addRoundedRect(badge, badge.width() * 0.22, badge.width() * 0.22);
         painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 2));
-        painter->setBrush(QColor(0x3c, 0xb3, 0x71)); // green
-        painter->drawEllipse(badge);
-        painter->setPen(QPen(QColor(0xff, 0xff, 0xff), badge.width() * 0.11, Qt::SolidLine,
+        painter->setBrush(QColor(0x2f, 0x9e, 0xe0)); // Switch blue
+        painter->drawPath(box);
+        painter->setPen(QPen(QColor(0xff, 0xff, 0xff), badge.width() * 0.12, Qt::SolidLine,
                              Qt::RoundCap, Qt::RoundJoin));
         painter->setBrush(Qt::NoBrush);
         QPainterPath check;
-        check.moveTo(badge.left() + badge.width() * 0.28, badge.top() + badge.height() * 0.52);
-        check.lineTo(badge.left() + badge.width() * 0.44, badge.top() + badge.height() * 0.68);
-        check.lineTo(badge.left() + badge.width() * 0.74, badge.top() + badge.height() * 0.34);
+        check.moveTo(badge.left() + badge.width() * 0.26, badge.top() + badge.height() * 0.52);
+        check.lineTo(badge.left() + badge.width() * 0.44, badge.top() + badge.height() * 0.70);
+        check.lineTo(badge.left() + badge.width() * 0.76, badge.top() + badge.height() * 0.30);
         painter->drawPath(check);
     }
 
