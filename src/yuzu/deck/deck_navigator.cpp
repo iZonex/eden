@@ -17,7 +17,7 @@ constexpr int kPollIntervalMs = 16;
 //  - first move fires immediately on press,
 //  - then a deliberate initial hold delay before it starts repeating,
 //  - then a base repeat interval that accelerates the longer the direction is held.
-constexpr int kInitialDelayTicks = 22; // ~350 ms before autorepeat kicks in
+constexpr int kInitialDelayTicks = 15; // ~240 ms before autorepeat kicks in
 constexpr int kRepeatTicks = 6;        // ~100 ms between repeats at first
 constexpr int kFastRepeatTicks = 3;    // ~50 ms once the hold has been sustained
 constexpr int kAccelerateAfterTicks = 70;
@@ -121,7 +121,9 @@ void DeckNavigator::Poll() {
             }
         }
     }
-    constexpr s32 kStickDeadzone = 16000; // ~0.5 of the ±32767 stick range
+    // ~0.3 of the ±32767 range. The emulated controller already deadzones drift out of this value
+    // (games play fine), so this just asks for a deliberate push without feeling sluggish.
+    constexpr s32 kStickDeadzone = 10000;
     const bool up = is_down(BtnUp) || sy > kStickDeadzone;
     const bool down = is_down(BtnDown) || sy < -kStickDeadzone;
     const bool left = is_down(BtnLeft) || sx < -kStickDeadzone;
