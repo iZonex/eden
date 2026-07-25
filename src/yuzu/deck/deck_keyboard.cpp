@@ -11,30 +11,69 @@
 #include "yuzu/deck/deck_theme.h"
 
 namespace {
-// The last row holds three wide control keys. Plain ASCII labels so they render in any font (unicode
-// ⌫/✓ can fall back to tofu boxes, which looked broken).
-const QString kSpaceKey = QStringLiteral("Space");
-const QString kBackKey = QStringLiteral("Delete");
-const QString kDoneKey = QStringLiteral("Done");
 constexpr int kMaxLen = 32;
 } // namespace
 
 DeckKeyboard::DeckKeyboard(QWidget* parent) : QWidget(parent) {
-    rows = {
-        QStringLiteral("1234567890"),
-        QStringLiteral("QWERTYUIOP"),
-        QStringLiteral("ASDFGHJKL"),
-        QStringLiteral("ZXCVBNM"),
-        QString(),  // control row, handled specially
-    };
+    Rebuild();
     setVisible(false);
+}
+
+void DeckKeyboard::Rebuild() {
+    using Kind = Key::Kind;
+    keys.clear();
+
+    const auto char_row = [](const QString& s) {
+        std::vector<Key> v;
+        for (const QChar c : s) {
+            v.push_back({QString(c), QString(c), Kind::Char, 1});
+        }
+        return v;
+    };
+
+    if (!symbols) {
+        auto r0 = char_row(QStringLiteral("1234567890-"));
+        r0.push_back({QStringLiteral("⌫"), {}, Kind::Backspace, 2}); // backspace
+        keys.push_back(std::move(r0));
+        keys.push_back(char_row(shifted ? QStringLiteral("QWERTYUIOP")
+                                        : QStringLiteral("qwertyuiop")));
+        keys.push_back(char_row(shifted ? QStringLiteral("ASDFGHJKL")
+                                        : QStringLiteral("asdfghjkl")));
+        auto r3 = char_row(shifted ? QStringLiteral("ZXCVBNM") : QStringLiteral("zxcvbnm"));
+        for (const QChar c : QStringLiteral(",.?!")) {
+            r3.push_back({QString(c), QString(c), Kind::Char, 1});
+        }
+        keys.push_back(std::move(r3));
+    } else {
+        auto r0 = char_row(QStringLiteral("1234567890"));
+        r0.push_back({QStringLiteral("⌫"), {}, Kind::Backspace, 2});
+        keys.push_back(std::move(r0));
+        keys.push_back(char_row(QStringLiteral("-/:;()$&@\"")));
+        keys.push_back(char_row(QStringLiteral(".,?!'`+=")));
+        keys.push_back(char_row(QStringLiteral("#*_\\|<>~")));
+    }
+
+    // Function row: Shift | #+= (or ABC) | Space | OK — the wide keys, like the reference.
+    std::vector<Key> fr;
+    fr.push_back({QStringLiteral("⇧"), {}, Kind::Shift, 2}); // shift
+    fr.push_back({symbols ? QStringLiteral("ABC") : QStringLiteral("#+="), {}, Kind::Symbols, 2});
+    fr.push_back({QStringLiteral("Space"), QStringLiteral(" "), Kind::Space, 8});
+    fr.push_back({QStringLiteral("OK"), {}, Kind::Ok, 3});
+    keys.push_back(std::move(fr));
+
+    // Keep the cursor in range after a layout change.
+    row = std::clamp(row, 0, static_cast<int>(keys.size()) - 1);
+    col = std::clamp(col, 0, static_cast<int>(keys[row].size()) - 1);
 }
 
 void DeckKeyboard::Start(const QString& title_, const QString& initial) {
     title = title_;
     text = initial.left(kMaxLen);
-    row = 1;
+    shifted = false;
+    symbols = false;
+    row = 1; // land on the top letter row
     col = 0;
+    Rebuild();
     if (parentWidget() != nullptr) {
         setGeometry(parentWidget()->rect()); // cover the whole page, even before a resize event
     }
@@ -43,31 +82,97 @@ void DeckKeyboard::Start(const QString& title_, const QString& initial) {
     update();
 }
 
+const DeckKeyboard::Key* DeckKeyboard::CurrentKey() const {
+    if (row < 0 || row >= static_cast<int>(keys.size())) {
+        return nullptr;
+    }
+    if (col < 0 || col >= static_cast<int>(keys[row].size())) {
+        return nullptr;
+    }
+    return &keys[row][col];
+}
+
 void DeckKeyboard::MoveCursor(int d_row, int d_col) {
-    const int n_rows = static_cast<int>(rows.size());
-    row = std::clamp(row + d_row, 0, n_rows - 1);
-    const bool control = row == n_rows - 1;
-    const int len = control ? 3 : static_cast<int>(rows[row].size());
-    col = std::clamp(col + d_col, 0, len - 1);
+    const int n_rows = static_cast<int>(keys.size());
+    if (d_row != 0) {
+        // Preserve the horizontal position by weighted centre, so Up/Down lands on the key under the
+        // cursor rather than snapping to the same index in a differently-sized row.
+        qreal centre = 0.0, total = 0.0;
+        for (int c = 0; c < static_cast<int>(keys[row].size()); ++c) {
+            total += keys[row][c].weight;
+        }
+        qreal acc = 0.0;
+        for (int c = 0; c <= col && c < static_cast<int>(keys[row].size()); ++c) {
+            if (c == col) {
+                centre = (acc + keys[row][c].weight / 2.0) / total;
+            }
+            acc += keys[row][c].weight;
+        }
+        row = std::clamp(row + d_row, 0, n_rows - 1);
+        qreal rtotal = 0.0;
+        for (const auto& k : keys[row]) {
+            rtotal += k.weight;
+        }
+        qreal racc = 0.0;
+        col = 0;
+        for (int c = 0; c < static_cast<int>(keys[row].size()); ++c) {
+            const qreal lo = racc / rtotal, hi = (racc + keys[row][c].weight) / rtotal;
+            if (centre >= lo && centre < hi) {
+                col = c;
+                break;
+            }
+            racc += keys[row][c].weight;
+            col = c;
+        }
+    }
+    if (d_col != 0) {
+        col = std::clamp(col + d_col, 0, static_cast<int>(keys[row].size()) - 1);
+    }
     update();
 }
 
 void DeckKeyboard::PressKey() {
-    const int n_rows = static_cast<int>(rows.size());
-    if (row == n_rows - 1) {
-        // Control row: Space / Backspace / Done.
-        if (col == 0) {
-            if (text.size() < kMaxLen) {
-                text.append(QLatin1Char(' '));
-            }
-        } else if (col == 1) {
-            Backspace();
-        } else {
-            Accept();
-        }
-    } else if (col < static_cast<int>(rows[row].size()) && text.size() < kMaxLen) {
-        text.append(rows[row].at(col));
+    const Key* k = CurrentKey();
+    if (k == nullptr) {
+        return;
     }
+    switch (k->kind) {
+    case Key::Kind::Char:
+        if (text.size() < kMaxLen) {
+            text.append(k->value);
+        }
+        if (shifted) { // one-shot capitalisation, like the Switch
+            shifted = false;
+            Rebuild();
+        }
+        break;
+    case Key::Kind::Space:
+        if (text.size() < kMaxLen) {
+            text.append(QLatin1Char(' '));
+        }
+        break;
+    case Key::Kind::Backspace:
+        Backspace();
+        break;
+    case Key::Kind::Shift:
+        shifted = !shifted;
+        Rebuild();
+        break;
+    case Key::Kind::Symbols:
+        symbols = !symbols;
+        shifted = false;
+        Rebuild();
+        break;
+    case Key::Kind::Ok:
+        Accept();
+        break;
+    }
+    update();
+}
+
+void DeckKeyboard::ToggleShift() {
+    shifted = !shifted;
+    Rebuild();
     update();
 }
 
@@ -94,84 +199,126 @@ void DeckKeyboard::Cancel() {
 void DeckKeyboard::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    // Dim the screen behind the panel.
-    p.fillRect(rect(), QColor(0, 0, 0, 130));
+    const bool light = DeckTheme::IsLightMode();
 
-    // Centred panel.
-    const int pw = 760;
-    const int ph = 440;
-    const QRect panel((width() - pw) / 2, (height() - ph) / 2, pw, ph);
-    QPainterPath panel_path;
-    panel_path.addRoundedRect(panel, 18, 18);
-    p.fillPath(panel_path, DeckTheme::kSurface);
+    // Dim the page behind, then dock a full-width keyboard along the bottom (the Switch layout: the
+    // prompt + text field sit on the dimmed page above, the keyboard fills the lower portion).
+    p.fillRect(rect(), QColor(0, 0, 0, light ? 150 : 170));
 
+    const int W = width(), H = height();
+    const int margin = std::max(40, W / 24);
+
+    // Prompt title.
     QFont f = font();
-    // Title.
-    f.setPixelSize(24);
+    f.setPixelSize(30);
     p.setFont(f);
-    p.setPen(DeckTheme::kTextDim);
-    p.drawText(QRect(panel.left() + 30, panel.top() + 20, pw - 60, 30), Qt::AlignLeft, title);
+    p.setPen(light ? QColor(0xf2, 0xf2, 0xf2) : QColor(0xf2, 0xf2, 0xf2));
+    p.drawText(QRect(margin, static_cast<int>(H * 0.10), W - 2 * margin, 40), Qt::AlignLeft, title);
 
-    // Text field.
-    const QRect field(panel.left() + 30, panel.top() + 58, pw - 60, 48);
-    QPainterPath field_path;
-    field_path.addRoundedRect(field, 8, 8);
-    p.fillPath(field_path, DeckTheme::kBackground);
-    f.setPixelSize(26);
+    // Text field: the value on a full-width underline, with an N/max counter at the right.
+    const int field_y = static_cast<int>(H * 0.24);
+    f.setPixelSize(34);
     p.setFont(f);
-    p.setPen(DeckTheme::kText);
+    p.setPen(QColor(0xff, 0xff, 0xff));
     p.save();
-    p.setClipRect(field.adjusted(8, 0, -8, 0)); // never let a long name spill past the field
-    p.drawText(field.adjusted(14, 0, -14, 0), Qt::AlignVCenter | Qt::AlignLeft,
+    p.setClipRect(QRect(margin, field_y - 40, W - 2 * margin, 50));
+    p.drawText(QRect(margin, field_y - 40, W - 2 * margin, 50), Qt::AlignVCenter | Qt::AlignLeft,
                text + QStringLiteral("|"));
     p.restore();
-
-    // Keys.
-    const int n_rows = static_cast<int>(rows.size());
-    const int key_top = panel.top() + 128;
-    const int key_h = 52;
-    const int key_gap = 8;
-    const int grid_left = panel.left() + 30;
-    const int grid_w = pw - 60;
-    const int key_w = (grid_w - 9 * key_gap) / 10; // sized to the widest (10-key) row
-
-    f.setPixelSize(24);
+    p.setPen(QColor(0xff, 0xff, 0xff, 200));
+    p.drawLine(margin, field_y + 12, W - margin, field_y + 12);
+    f.setPixelSize(20);
     p.setFont(f);
+    p.setPen(QColor(0xff, 0xff, 0xff, 180));
+    p.drawText(QRect(margin, field_y + 16, W - 2 * margin, 26), Qt::AlignRight,
+               QStringLiteral("%1/%2").arg(text.size()).arg(kMaxLen));
+
+    // Keyboard panel.
+    const int panel_top = static_cast<int>(H * 0.40);
+    QPainterPath panel;
+    panel.addRoundedRect(QRectF(0, panel_top, W, H - panel_top), 24, 24);
+    p.fillPath(panel, light ? QColor(0xe4, 0xe4, 0xe6) : QColor(0x2f, 0x2f, 0x31));
+
+    // Key grid.
+    const int pad_x = std::max(50, W / 18);
+    const int grid_left = pad_x;
+    const int grid_w = W - 2 * pad_x;
+    const int grid_top = panel_top + 34;
+    const int grid_bottom = H - std::max(60, H / 12);
+    const int n_rows = static_cast<int>(keys.size());
+    const int gap = 8;
+    const int row_h = (grid_bottom - grid_top - (n_rows - 1) * gap) / n_rows;
+
     for (int r = 0; r < n_rows; ++r) {
-        const int y = key_top + r * (key_h + key_gap);
-        if (r == n_rows - 1) {
-            // Control row: three wide keys spanning the grid.
-            const QString labels[3] = {kSpaceKey, kBackKey, kDoneKey};
-            const int widths[3] = {grid_w / 2, grid_w / 4 - key_gap, grid_w / 4 - key_gap};
-            int x = grid_left;
-            for (int c = 0; c < 3; ++c) {
-                const QRect kr(x, y, widths[c], key_h);
-                const bool sel = row == r && col == c;
-                QPainterPath kp;
-                kp.addRoundedRect(kr, 8, 8);
-                p.fillPath(kp, sel ? DeckTheme::kAccent : DeckTheme::kBackground);
-                p.setPen(sel ? DeckTheme::kSurface : DeckTheme::kText);
-                p.drawText(kr, Qt::AlignCenter, labels[c]);
-                x += widths[c] + key_gap;
+        qreal wsum = 0.0;
+        for (const auto& k : keys[r]) {
+            wsum += k.weight;
+        }
+        const qreal unit = (grid_w - (static_cast<int>(keys[r].size()) - 1) * gap) / wsum;
+        const int y = grid_top + r * (row_h + gap);
+        qreal x = grid_left;
+        for (int c = 0; c < static_cast<int>(keys[r].size()); ++c) {
+            const Key& k = keys[r][c];
+            const int kw = static_cast<int>(unit * k.weight);
+            const QRectF kr(x, y, kw, row_h);
+            const bool sel = (r == row && c == col);
+            const bool is_ok = k.kind == Key::Kind::Ok;
+            const bool active_toggle = (k.kind == Key::Kind::Shift && shifted) ||
+                                       (k.kind == Key::Kind::Symbols && symbols);
+
+            QPainterPath kp;
+            kp.addRoundedRect(kr, 8, 8);
+            QColor fill;
+            if (is_ok) {
+                fill = DeckTheme::kAccent; // OK is always the blue accent
+            } else if (sel) {
+                fill = DeckTheme::kAccent;
+            } else if (active_toggle) {
+                fill = DeckTheme::kAccentSoft;
+            } else {
+                fill = light ? QColor(0xff, 0xff, 0xff) : QColor(0x45, 0x45, 0x47);
             }
-        } else {
-            const QString& chars = rows[r];
-            for (int c = 0; c < chars.size(); ++c) {
-                const QRect kr(grid_left + c * (key_w + key_gap), y, key_w, key_h);
-                const bool sel = row == r && col == c;
-                QPainterPath kp;
-                kp.addRoundedRect(kr, 8, 8);
-                p.fillPath(kp, sel ? DeckTheme::kAccent : DeckTheme::kBackground);
-                p.setPen(sel ? DeckTheme::kSurface : DeckTheme::kText);
-                p.drawText(kr, Qt::AlignCenter, QString(chars.at(c)));
+            p.fillPath(kp, fill);
+
+            // Selected key gets the thin iridescent frame (matches the tile selection).
+            if (sel) {
+                QConicalGradient cg(kr.center(), 90);
+                cg.setColorAt(0.00, QColor(0x5b, 0x8f, 0xff));
+                cg.setColorAt(0.30, QColor(0xa9, 0x6c, 0xf0));
+                cg.setColorAt(0.55, QColor(0xff, 0x83, 0xc0));
+                cg.setColorAt(0.80, QColor(0x4f, 0xc8, 0xf0));
+                cg.setColorAt(1.00, QColor(0x5b, 0x8f, 0xff));
+                p.setPen(QPen(QBrush(cg), 3));
+                p.setBrush(Qt::NoBrush);
+                QPainterPath fr2;
+                fr2.addRoundedRect(kr.adjusted(-2, -2, 2, 2), 10, 10);
+                p.drawPath(fr2);
             }
+
+            // Label.
+            QColor text_color;
+            if (is_ok || sel) {
+                text_color = QColor(0xff, 0xff, 0xff);
+            } else if (active_toggle) {
+                text_color = DeckTheme::kAccent;
+            } else {
+                text_color = light ? QColor(0x1f, 0x1f, 0x21) : QColor(0xf2, 0xf2, 0xf2);
+            }
+            p.setPen(text_color);
+            const bool wide_label = k.kind == Key::Kind::Space || k.kind == Key::Kind::Symbols ||
+                                    is_ok;
+            f.setPixelSize(wide_label ? 24 : 28);
+            p.setFont(f);
+            p.drawText(kr, Qt::AlignCenter, k.label);
+
+            x += kw + gap;
         }
     }
 
-    // Hint.
-    f.setPixelSize(18);
+    // Bottom control hints.
+    f.setPixelSize(22);
     p.setFont(f);
-    p.setPen(DeckTheme::kTextDim);
-    p.drawText(QRect(panel.left() + 30, panel.bottom() - 34, pw - 60, 24), Qt::AlignHCenter,
-               QStringLiteral("A: type    B: backspace    +: done"));
+    p.setPen(QColor(0xff, 0xff, 0xff, 200));
+    p.drawText(QRect(margin, H - std::max(60, H / 12), W - 2 * margin, 30), Qt::AlignRight,
+               QStringLiteral("Ⓡ Shift    Ⓧ Cancel    Ⓐ Select"));
 }

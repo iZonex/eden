@@ -206,6 +206,9 @@ DeckUsersPage::DeckUsersPage(Core::System& system_, QWidget* parent)
     pane_layout->setContentsMargins(56, 30, 56, 30);
     pane_layout->setSpacing(0);
 
+    // Profile block, vertically centred in the pane (the Switch's My Page). No footer banner — the
+    // hint bar carries the controls.
+    pane_layout->addStretch(1);
     profile_avatar = new QLabel(pane);
     profile_avatar->setFixedSize(180, 180);
     profile_avatar->setAlignment(Qt::AlignCenter);
@@ -223,13 +226,6 @@ DeckUsersPage::DeckUsersPage(Core::System& system_, QWidget* parent)
         QStringLiteral("font-size: 20px; font-weight: 500; color: %1;").arg(DeckTheme::kAccent.name()));
     pane_layout->addWidget(profile_status);
     pane_layout->addStretch(1);
-    hint = new QLabel(
-        tr("Each user keeps their own save data.  A: set active   X: add   Y: delete   B: back"),
-        pane);
-    hint->setAlignment(Qt::AlignHCenter);
-    hint->setStyleSheet(
-        QStringLiteral("font-size: 18px; color: %1;").arg(DeckTheme::kTextDim.name()));
-    pane_layout->addWidget(hint);
 
     body->addWidget(pane, 1);
     root->addLayout(body, 1);

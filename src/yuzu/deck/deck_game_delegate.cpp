@@ -30,7 +30,7 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     const bool selected = (option.state & QStyle::State_Selected) != 0;
-    const int radius = 18;
+    const int radius = 22;
 
     // The focused tile is drawn larger and "floats" (soft shadow + glow); others sit smaller in the
     // same cell. The title anchors at a fixed y so labels line up.
@@ -85,42 +85,54 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             }
         }
         if (selected) {
-            // White ring hugging the circle, then a shimmering iridescent ring around it — the tile
-            // selection, but circular.
+            // The circular counterpart of the tile selection: a faint white seat, then a thin
+            // iridescent ring that shimmers with the phase.
             painter->setBrush(Qt::NoBrush);
-            painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 3));
+            painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 150), 5));
             painter->drawEllipse(circle.adjusted(-2, -2, 2, 2));
             QConicalGradient cg(circle.center(), static_cast<qreal>(phase));
-            cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
-            cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
-            cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
-            cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
-            cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
+            cg.setColorAt(0.00, QColor(0x5b, 0x8f, 0xff));
+            cg.setColorAt(0.30, QColor(0xa9, 0x6c, 0xf0));
+            cg.setColorAt(0.55, QColor(0xff, 0x83, 0xc0));
+            cg.setColorAt(0.80, QColor(0x4f, 0xc8, 0xf0));
+            cg.setColorAt(1.00, QColor(0x5b, 0x8f, 0xff));
             painter->setPen(QPen(QBrush(cg), 3));
-            painter->drawEllipse(circle.adjusted(-5, -5, 5, 5));
+            painter->drawEllipse(circle.adjusted(-1, -1, 1, 1));
         }
         painter->restore();
         return;
     }
 
-    // A rounded-rect selection frame (white ring + shimmering iridescent ring), shared by the group
-    // folder and new-group tiles so their selection matches the box-art tiles.
+    // The Switch-style selection frame: a thin iridescent border (blue→purple→pink→cyan) that slowly
+    // shimmers, hugging the tile's white matte — delicate, not bold, matching the reference HOME/
+    // Settings selection. Shared by the box-art tiles, the group folder, and the new-group tile.
     const auto draw_rect_selection = [&](const QRectF& r, int rad) {
         painter->setBrush(Qt::NoBrush);
-        painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 3));
-        QPainterPath inner;
-        inner.addRoundedRect(r.adjusted(-2, -2, 2, 2), rad + 2, rad + 2);
-        painter->drawPath(inner);
+        if (!rail_active) {
+            // Focus is on the dock/avatar: keep a *dim* marker on the last tile so the user knows
+            // where they'll return, but don't let it compete with the active zone's highlight.
+            QColor dim = DeckTheme::kText;
+            dim.setAlpha(70);
+            painter->setPen(QPen(dim, 3));
+            QPainterPath frame;
+            frame.addRoundedRect(r.adjusted(-1, -1, 1, 1), rad + 1, rad + 1);
+            painter->drawPath(frame);
+            return;
+        }
+        // The Switch's selection: a *thin* iridescent border that slowly shimmers
+        // (blue → purple → pink → cyan), rotated by the animation phase, hugging the white matte's
+        // outer edge. Subtle — no extra white ring (the thin matte already supplies the white band);
+        // the reference HOME tile reads as a delicate tinted edge, not a bold ring.
         QConicalGradient cg(r.center(), static_cast<qreal>(phase));
-        cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
-        cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
-        cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
-        cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
-        cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
-        painter->setPen(QPen(QBrush(cg), 3));
-        QPainterPath outer;
-        outer.addRoundedRect(r.adjusted(-5, -5, 5, 5), rad + 5, rad + 5);
-        painter->drawPath(outer);
+        cg.setColorAt(0.00, QColor(0x5b, 0x8f, 0xff));
+        cg.setColorAt(0.30, QColor(0xa9, 0x6c, 0xf0));
+        cg.setColorAt(0.55, QColor(0xff, 0x83, 0xc0));
+        cg.setColorAt(0.80, QColor(0x4f, 0xc8, 0xf0));
+        cg.setColorAt(1.00, QColor(0x5b, 0x8f, 0xff));
+        painter->setPen(QPen(QBrush(cg), 2));
+        QPainterPath frame;
+        frame.addRoundedRect(r, rad, rad);
+        painter->drawPath(frame);
     };
 
     // Group folder tile: a rounded card with a folder glyph and the group's name.
@@ -184,9 +196,9 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         return;
     }
 
-    if (selected) {
+    if (selected && rail_active) {
         // A soft drop shadow so the focused tile lifts off the page (the Switch's subtle highlight),
-        // rather than a heavy coloured glow.
+        // rather than a heavy coloured glow. Only while the rail is the active zone.
         for (int s = 10; s >= 1; --s) {
             QPainterPath sh;
             sh.addRoundedRect(art_rect.adjusted(-s, -s + 2, s, s + 4), radius + s, radius + s);
@@ -194,55 +206,52 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         }
     }
 
+    // The Switch's selected tile sits on a white matte: the box art is inset inside a white card, so
+    // a white band shows around the art, and the iridescent frame hugs the card's outer edge.
+    // (art → white backing → selection frame). Non-selected tiles are just the art.
+    const int matte = (selected && rail_active) ? 2 : 0;
+    if (matte > 0) {
+        QPainterPath card;
+        card.addRoundedRect(art_rect, radius, radius);
+        painter->fillPath(card, QColor(0xff, 0xff, 0xff));
+    }
+    const QRectF art_inner = art_rect.adjusted(matte, matte, -matte, -matte);
+    const int inner_radius = std::max(4, radius - matte);
+
     QPainterPath clip;
-    clip.addRoundedRect(art_rect, radius, radius);
+    clip.addRoundedRect(art_inner, inner_radius, inner_radius);
     painter->save();
     painter->setClipPath(clip);
 
     const QPixmap pixmap = index.data(Qt::DecorationRole).value<QPixmap>();
     if (!pixmap.isNull()) {
-        const QPixmap scaled = pixmap.scaled(art_rect.size(), Qt::KeepAspectRatioByExpanding,
+        const QPixmap scaled = pixmap.scaled(art_inner.size().toSize(), Qt::KeepAspectRatioByExpanding,
                                              Qt::SmoothTransformation);
-        const int dx = (scaled.width() - art_rect.width()) / 2;
-        const int dy = (scaled.height() - art_rect.height()) / 2;
-        painter->drawPixmap(art_rect, scaled, QRect(dx, dy, art_rect.width(), art_rect.height()));
+        const int dx = (scaled.width() - static_cast<int>(art_inner.width())) / 2;
+        const int dy = (scaled.height() - static_cast<int>(art_inner.height())) / 2;
+        painter->drawPixmap(art_inner, scaled,
+                            QRectF(dx, dy, art_inner.width(), art_inner.height()));
     } else {
         // No box art: a neutral tile with a centered game glyph, never a blank white square.
-        QLinearGradient grad(art_rect.topLeft(), art_rect.bottomRight());
+        QLinearGradient grad(art_inner.topLeft(), art_inner.bottomRight());
         grad.setColorAt(0, QColor(0xcc, 0xd1, 0xd8));
         grad.setColorAt(1, QColor(0xac, 0xb2, 0xbc));
-        painter->fillRect(art_rect, grad);
-        const int gsz = art_rect.width() / 2;
+        painter->fillRect(art_inner, grad);
+        const int gsz = static_cast<int>(art_inner.width()) / 2;
         const QPixmap glyph = DeckTheme::Icon(QStringLiteral("games"), gsz);
         painter->setOpacity(0.85);
-        painter->drawPixmap(QPointF(art_rect.center().x() - gsz / 2.0,
-                                    art_rect.center().y() - gsz / 2.0),
+        painter->drawPixmap(QPointF(art_inner.center().x() - gsz / 2.0,
+                                    art_inner.center().y() - gsz / 2.0),
                             glyph);
         painter->setOpacity(1.0);
     }
     painter->restore();
 
-    // Border: the focused tile gets a shimmering iridescent frame (a conical gradient sweeping
-    // around it, rotated by the animation phase), like the Switch's selection.
+    // Border: the focused tile gets the iridescent selection frame (over the white matte + drop
+    // shadow drawn earlier) — art → white backing → frame, like the Switch.
     painter->setBrush(Qt::NoBrush);
     if (selected) {
-        // The Switch selection: a white ring hugging the art, then a slightly wider iridescent ring
-        // (blue → purple → pink → cyan) around it that shimmers by rotating with the phase.
-        painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 3));
-        QPainterPath inner;
-        inner.addRoundedRect(art_rect.adjusted(-2, -2, 2, 2), radius + 2, radius + 2);
-        painter->drawPath(inner);
-
-        QConicalGradient cg(art_rect.center(), static_cast<qreal>(phase));
-        cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
-        cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
-        cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
-        cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
-        cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
-        painter->setPen(QPen(QBrush(cg), 3));
-        QPainterPath outer;
-        outer.addRoundedRect(art_rect.adjusted(-5, -5, 5, 5), radius + 5, radius + 5);
-        painter->drawPath(outer);
+        draw_rect_selection(art_rect, radius);
     } else {
         // Barely-there edge so tiles read as cards on either theme.
         QColor edge = DeckTheme::kText;

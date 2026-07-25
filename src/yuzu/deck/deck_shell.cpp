@@ -41,6 +41,7 @@ void ForceDarkBackground(QWidget* root) {
         child->setAutoFillBackground(true);
     }
 }
+
 } // namespace
 
 DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvider* provider,
