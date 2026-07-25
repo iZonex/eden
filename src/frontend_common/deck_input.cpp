@@ -364,26 +364,10 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
     };
 
     bool held = false;
-    // Diagnostic: a heartbeat proves the poll runs at all in-game, and a per-slot dump on ANY button
-    // change reveals exactly what the user's "2 buttons" produce and on which slot — so a gesture that
-    // never fires is fully debuggable from the log.
-    static unsigned long long last_logged = 0;
-    static int beat = 0;
-    const bool heartbeat = (++beat % 6) == 0; // ~every 3s at the 2 Hz poll
     for (const auto npad_id : kIds) {
         const auto* const controller = hid_core.GetEmulatedController(npad_id);
         if (controller == nullptr || !controller->IsConnected()) {
             continue;
-        }
-        const auto raw = static_cast<unsigned long long>(controller->GetNpadButtons().raw);
-        const auto home = static_cast<unsigned long long>(controller->GetHomeButtons().raw);
-        if (heartbeat) {
-            LOG_INFO(Input, "Steam Deck: gesture poll alive — slot {} npad=0x{:X} home=0x{:X}",
-                     static_cast<int>(npad_id), raw, home);
-        } else if ((raw != 0 || home != 0) && (raw ^ last_logged)) {
-            last_logged = raw;
-            LOG_INFO(Input, "Steam Deck: BUTTON slot {} npad=0x{:X} home=0x{:X}",
-                     static_cast<int>(npad_id), raw, home);
         }
         if (gesture_held(*controller)) {
             held = true;
