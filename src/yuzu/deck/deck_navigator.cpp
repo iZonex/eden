@@ -3,7 +3,7 @@
 
 #include <QTimer>
 
-#include "common/logging/log.h"
+#include "common/logging.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
 #include "hid_core/hid_types.h"
