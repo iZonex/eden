@@ -197,22 +197,11 @@ protected:
         if (const auto it = has_art.find(pid); it != has_art.end()) {
             return it.value();
         }
-        bool art = false;
+        // Cheap check: a real box-art pixmap is simply non-null with size. The old version called
+        // px.toImage() + pixelColor on every game, and that burst of 249 conversions on the UI thread
+        // is what froze the shell at startup. Games with no art fall to the delegate's placeholder.
         const QPixmap px = idx.data(Qt::DecorationRole).value<QPixmap>();
-        if (!px.isNull()) {
-            const QImage img = px.toImage();
-            const int w = img.width();
-            const int h = img.height();
-            static const double pts[][2] = {{0.5, 0.5}, {0.3, 0.3}, {0.7, 0.7}, {0.5, 0.85}};
-            for (const auto& pt : pts) {
-                if (w > 0 && h > 0 &&
-                    img.pixelColor(static_cast<int>(w * pt[0]), static_cast<int>(h * pt[1]))
-                            .alpha() > 20) {
-                    art = true;
-                    break;
-                }
-            }
-        }
+        const bool art = !px.isNull() && px.width() > 4 && px.height() > 4;
         has_art.insert(pid, art);
         return art;
     }
