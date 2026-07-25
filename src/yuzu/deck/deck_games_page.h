@@ -98,7 +98,8 @@ private:
     Core::System& system;
     GameListModel* model = nullptr;
     QSortFilterProxyModel* filter = nullptr; ///< Shows only real games (see LibraryFilter).
-    QAbstractItemModel* rail_model = nullptr; ///< filter + trailing "All Software" tile; the rail's model
+    QSortFilterProxyModel* head = nullptr; ///< caps the home rail to the recent N (uncapped in the grid)
+    QAbstractItemModel* rail_model = nullptr; ///< head + trailing "All Software" tile; the rail's model
     QAbstractListModel* all_software = nullptr; ///< the trailing tile's model (hidden in grid mode)
     QListView* rail = nullptr;
     class DeckGameDelegate* delegate = nullptr;

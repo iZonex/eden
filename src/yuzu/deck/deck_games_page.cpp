@@ -84,15 +84,22 @@ constexpr std::size_t kMaxAvatars = 6; // the Switch shows a short row — don't
 // so a console with many profiles never runs the row off the screen.
 std::vector<Common::UUID> OrderedUserUuids(const Service::Account::ProfileManager& manager) {
     std::vector<Common::UUID> out;
-    const Common::UUID active = manager.GetLastOpenedUser();
-    if (active.IsValid()) {
-        out.push_back(active);
-    }
-    for (const auto& uuid : manager.GetAllUsers()) {
-        if (!uuid.IsValid() || uuid == active) {
-            continue;
+    const auto add_unique = [&out](const Common::UUID& uuid) {
+        if (!uuid.IsValid()) {
+            return;
+        }
+        // Dedupe: a corrupt profiles.dat can hold the same UUID in two slots, which would otherwise
+        // show the same user twice in the row.
+        for (const auto& seen : out) {
+            if (seen == uuid) {
+                return;
+            }
         }
         out.push_back(uuid);
+    };
+    add_unique(manager.GetLastOpenedUser()); // active user leads
+    for (const auto& uuid : manager.GetAllUsers()) {
+        add_unique(uuid);
     }
     if (out.size() > kMaxAvatars) {
         out.resize(kMaxAvatars);
@@ -111,6 +118,32 @@ std::vector<QPixmap> AvatarsFor(const std::vector<Common::UUID>& uuids, int size
     }
     return out;
 }
+
+// The Switch home shows a short row of the most-recent titles, not the whole library — the rest live
+// behind All Software. This caps the home rail; All Software (grid mode) lifts the cap to show every
+// game.
+constexpr int kHomeRailRecent = 12;
+
+// Caps its (already recency-sorted) source to the first N rows for the home rail; SetLimit(-1) shows
+// everything (used by the All Software grid).
+class HeadProxy : public QSortFilterProxyModel {
+public:
+    explicit HeadProxy(QObject* parent = nullptr) : QSortFilterProxyModel(parent) {}
+    void SetLimit(int n) {
+        if (limit != n) {
+            limit = n;
+            invalidateFilter();
+        }
+    }
+
+protected:
+    bool filterAcceptsRow(int row, const QModelIndex&) const override {
+        return limit < 0 || row < limit;
+    }
+
+private:
+    int limit = -1;
+};
 
 // One-row model marking the Nintendo-style round "All Software" button. Concatenated after the
 // library filter (see the rail setup) so it is always the last cell of the game row; the delegate
@@ -519,11 +552,18 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     filter->setSourceModel(model);
     filter->sort(0); // recently/most-played first, then the rest by title
 
-    // The rail shows the games (filter) followed by a trailing round "All Software" tile that opens
-    // the full-library grid — concatenated so it is always the last cell of the row, Switch-style.
-    // QConcatenateTablesProxyModel preserves row order, so game row N maps 1:1 to filter row N.
+    // Home shows only the most-recent titles (Switch-style); the full library is behind All Software.
+    // head caps the recency-sorted filter to kHomeRailRecent on home, and lifts the cap in the grid.
+    auto* head_proxy = new HeadProxy(this);
+    head_proxy->setSourceModel(filter);
+    head_proxy->SetLimit(kHomeRailRecent);
+    head = head_proxy;
+
+    // The rail shows the recent games (head) followed by a trailing round "All Software" tile that
+    // opens the full-library grid — concatenated so it is always the last cell of the row.
+    // QConcatenateTablesProxyModel preserves row order, so the mapping to head stays 1:1.
     auto* concat = new QConcatenateTablesProxyModel(this);
-    concat->addSourceModel(filter);
+    concat->addSourceModel(head);
     all_software = new AllSoftwareModel(this);
     concat->addSourceModel(all_software);
     rail_model = concat;
@@ -684,8 +724,11 @@ void DeckGamesPage::SetGridMode(bool on) {
         return;
     }
     grid_mode = on;
-    // The full library grid shows games only — hide the round All Software button there (it is the
-    // control that opened the grid), like the Switch's All Software view.
+    // The full library grid shows every game (lift the recent-N cap) and only games — hide the round
+    // All Software button there (it is the control that opened the grid), like the Switch.
+    if (head != nullptr) {
+        static_cast<HeadProxy*>(head)->SetLimit(on ? -1 : kHomeRailRecent);
+    }
     if (all_software != nullptr) {
         static_cast<AllSoftwareModel*>(all_software)->SetHidden(on);
     }
