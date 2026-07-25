@@ -39,6 +39,7 @@ enum class PaneKind {
     Support,
     Brightness,
     Bluetooth,
+    Internet,
     Parental,
     Accessibility,
     Storage,
@@ -67,9 +68,7 @@ const std::vector<CategoryDef> kCategories = {
      {"airplane_mode"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Screen Brightness"), PaneKind::Brightness, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Bluetooth Audio"), PaneKind::Bluetooth, {}, {}},
-    {QT_TRANSLATE_NOOP("DeckSettingsPage", "Internet"), PaneKind::Settings,
-     {{false, Settings::Category::Network}},
-     {"network_interface"}},
+    {QT_TRANSLATE_NOOP("DeckSettingsPage", "Internet"), PaneKind::Internet, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Parental Controls"), PaneKind::Parental, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Accessibility"), PaneKind::Accessibility, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Data Management"), PaneKind::Storage, {}, {}},
@@ -130,6 +129,13 @@ InfoContent InfoContentFor(PaneKind kind) {
             QObject::tr("Bluetooth microphones can't be used."),
             QObject::tr("You may notice delayed audio depending on your device."),
             QObject::tr("Connect or disconnect devices from the SteamOS Quick Access menu.")};
+        break;
+    case PaneKind::Internet:
+        c.subheader = QObject::tr("Internet Settings");
+        c.paragraph = QObject::tr("Internet and Wi-Fi are managed by SteamOS.");
+        c.bullets = {
+            QObject::tr("Connect to Wi-Fi from the SteamOS Quick Access menu (the … button)."),
+            QObject::tr("A connection is used for updates and online play, where supported.")};
         break;
     case PaneKind::Parental:
         c.paragraph =
@@ -412,10 +418,12 @@ DeckSettingsPage::DeckSettingsPage(Core::System& system, QWidget* parent) : Deck
 DeckSettingsPage::~DeckSettingsPage() = default;
 
 void DeckSettingsPage::ApplySidebarStyle() {
-    // The selected section is a card (surface) with a blue border, blue left bar and blue text — the
-    // Switch's sidebar selection; unselected sections are plain text on the page.
+    // The selected section is a white card with a *subtle* frame and a bold blue left bar + blue text
+    // — matching the Switch's sidebar selection (the frame is faint; only the left bar reads as blue).
+    // Unselected sections are plain text on the page.
     const QString blue = DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5")
                                                   : QStringLiteral("#6ab4ff");
+    const QString frame = DeckTheme::kDivider.name(); // faint grey hairline, like the reference
     sidebar->setStyleSheet(
         QStringLiteral("QListWidget { background: transparent; border: none; padding: 6px 2px; "
                        "outline: none; }"
@@ -423,8 +431,8 @@ void DeckSettingsPage::ApplySidebarStyle() {
                        "border: 2px solid transparent; border-left: 4px solid transparent; "
                        "border-radius: 12px; }"
                        "QListWidget::item:selected { background: %2; color: %3; "
-                       "border: 2px solid %4; border-left: 4px solid %4; }")
-            .arg(DeckTheme::kText.name(), DeckTheme::kSurface.name(), blue, blue));
+                       "border: 2px solid %4; border-left: 4px solid %5; }")
+            .arg(DeckTheme::kText.name(), DeckTheme::kSurface.name(), blue, frame, blue));
 
     if (page_title != nullptr) {
         page_title->setStyleSheet(
