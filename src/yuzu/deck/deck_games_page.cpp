@@ -278,7 +278,7 @@ public:
     enum { kAlbum = 0, kControllers = 1, kSettings = 2, kSleep = 3, kPower = 4, kCount = 5 };
 
     explicit DockBar(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedHeight(150);
+        setFixedHeight(168); // room for the focused item's tooltip below the pill
         names[kAlbum] = QStringLiteral("album");
         names[kControllers] = QStringLiteral("controllers");
         names[kSettings] = QStringLiteral("settings");
@@ -356,14 +356,18 @@ protected:
         const std::array<QString, kCount> labels{QObject::tr("Album"), QObject::tr("Controllers"),
                                                  QObject::tr("Settings"), QObject::tr("Sleep"),
                                                  QObject::tr("Power")};
-        const QColor blue = DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5)
-                                                     : QColor(0x6a, 0xb4, 0xff);
+        // The Switch dock colours app icons and greys the system ones. Album is our lone "app"; the
+        // rest (Controllers/Settings/Sleep/Power) are system icons, drawn grey.
+        const std::array<QColor, kCount> tints{QColor(0x3a, 0x9b, 0xd8), DeckTheme::kTextDim,
+                                               DeckTheme::kTextDim, DeckTheme::kTextDim,
+                                               DeckTheme::kTextDim};
+        int focused = -1;
         for (int i = 0; i < kCount; ++i) {
             const bool sel = (i == current) && zone_active;
             const QRectF sq = IconRect(i);
-
             if (sel) {
-                // Animated iridescent ring (blue→purple→pink→cyan), sweeping with the phase.
+                focused = i;
+                // Subtle round highlight behind the focused icon (the Switch's soft selection).
                 const QRectF ring = sq.adjusted(-3, -3, 3, 3);
                 QConicalGradient cg(ring.center(), static_cast<qreal>(phase));
                 cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
@@ -375,21 +379,27 @@ protected:
                 p.setBrush(Qt::NoBrush);
                 p.drawEllipse(ring);
             }
-
-            // Grey monochrome glyph, centred in its cell (no coloured background). Draw at the point
-            // so the pixmap's DPR is honoured and it stays crisp.
-            const QPixmap glyph = DeckTheme::Icon(names[i], kIconPx, DeckTheme::kTextDim);
+            // Icon glyph — coloured for the app, grey for system items (no per-icon label; the Switch
+            // shows only the focused item's name).
+            const QPixmap glyph = DeckTheme::Icon(names[i], kIconPx, tints[i]);
             p.drawPixmap(QPointF(sq.center().x() - kIconPx / 2.0, sq.center().y() - kIconPx / 2.0),
                          glyph);
+        }
 
-            // Label under every icon (the Switch shows the focused one's name; we keep them all so
-            // each icon is clear). Selected = blue, others = dim grey.
+        // Focused item's name in a rounded pill below its icon (the Switch's dock tooltip).
+        if (focused >= 0) {
+            const QRectF sq = IconRect(focused);
             QFont f = font();
-            f.setPixelSize(18);
+            f.setPixelSize(19);
             p.setFont(f);
-            p.setPen(sel ? blue : DeckTheme::kTextDim);
-            p.drawText(QRectF(sq.center().x() - 120, pill.bottom() + 6, 240, 24), Qt::AlignHCenter,
-                       labels[i]);
+            const QString text = labels[focused];
+            const int tw = QFontMetrics(f).horizontalAdvance(text) + 28;
+            const QRectF tip(sq.center().x() - tw / 2.0, pill.bottom() + 10, tw, 32);
+            QPainterPath tip_path;
+            tip_path.addRoundedRect(tip, 10, 10);
+            p.fillPath(tip_path, DeckTheme::kSurface);
+            p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
+            p.drawText(tip, Qt::AlignCenter, text);
         }
     }
 
