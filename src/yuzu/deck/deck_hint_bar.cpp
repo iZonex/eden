@@ -108,6 +108,13 @@ DeckHintBar::DeckHintBar(Core::HID::HIDCore& hid_core, QWidget* parent) : QWidge
 
 DeckHintBar::~DeckHintBar() = default;
 
+void DeckHintBar::paintEvent(QPaintEvent*) {
+    // Paint the page-coloured ground explicitly so the bar never inherits a stale (light) palette —
+    // the hints sit flat on the page, so this must match kBackground on both themes.
+    QPainter p(this);
+    p.fillRect(rect(), DeckTheme::kBackground);
+}
+
 void DeckHintBar::SetHints(const std::vector<DeckHint>& hints) {
     // Rebuild the hint cells (everything after the controller indicator + stretch).
     while (row->count() > 2) {

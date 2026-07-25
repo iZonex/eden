@@ -30,12 +30,16 @@ public:
     void OnActivated() override;
     void ApplyTheme() override;
 
+protected:
+    void paintEvent(QPaintEvent* event) override; ///< the left filter/sort icon column
+
 private:
     void Reload();
     void ShowViewer(bool on);
     int Columns() const;
 
     QLabel* title = nullptr;
+    QLabel* sort_label = nullptr; ///< "Newest First   |   All (N)" at the top-right
     QLabel* placeholder = nullptr;
     QListView* grid = nullptr;
     QStandardItemModel* model = nullptr;

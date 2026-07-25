@@ -56,9 +56,9 @@ QColor PlayerColor(int index);
 inline constexpr int kGridCardWidth = 272;
 inline constexpr int kGridCardHeight = 272; // square box art
 inline constexpr int kGridCardSpacing = 28;
-inline constexpr int kGridCardMargin = 14;  // uniform margin around each tile inside its cell
+inline constexpr int kGridCardMargin = 8;   // uniform margin around each tile inside its cell (gap = 2x)
                                             // (= half the gap between tiles + selection-border room)
-inline constexpr int kGridLeadIndent = 82;  // empty space left of the FIRST tile (scrolls away), so
+inline constexpr int kGridLeadIndent = 96;  // empty space left of the FIRST tile (scrolls away), so
                                             // the rail starts after the avatar but reaches the edge
 inline constexpr int kGridTitleHeight = 48;
 inline constexpr int kHintBarHeight = 54;

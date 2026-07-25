@@ -330,17 +330,14 @@ protected:
             const QRectF sq = IconRect(i);
             if (sel) {
                 focused = i;
-                // Subtle round highlight behind the focused icon (the Switch's soft selection).
-                const QRectF ring = sq.adjusted(-3, -3, 3, 3);
-                QConicalGradient cg(ring.center(), static_cast<qreal>(phase));
-                cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
-                cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
-                cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
-                cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
-                cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
-                p.setPen(QPen(QBrush(cg), 4));
-                p.setBrush(Qt::NoBrush);
-                p.drawEllipse(ring);
+                // Subtle round highlight behind the focused icon — a soft grey disc, like the Switch's
+                // dock selection (calm, no coloured shimmer).
+                const QRectF disc = sq.adjusted(-8, -8, 8, 8);
+                p.setPen(Qt::NoPen);
+                QColor hl = DeckTheme::kText;
+                hl.setAlpha(DeckTheme::IsLightMode() ? 24 : 38);
+                p.setBrush(hl);
+                p.drawEllipse(disc);
             }
             // Icon glyph — coloured for the app, grey for system items (no per-icon label; the Switch
             // shows only the focused item's name).
@@ -428,12 +425,10 @@ protected:
             p.drawEllipse(face);
         }
         if (focused) {
-            QLinearGradient lg(slot.topLeft(), slot.bottomRight());
-            lg.setColorAt(0.0, QColor(0x4f, 0x86, 0xff));
-            lg.setColorAt(0.5, QColor(0xa9, 0x5c, 0xf0));
-            lg.setColorAt(1.0, QColor(0xff, 0x6b, 0xb0));
+            // Clean royal-blue ring (the accent), not a coloured shimmer — matches the "…'s Page"
+            // label and the Switch's calm selection.
             p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(QBrush(lg), 3));
+            p.setPen(QPen(DeckTheme::kAccent, 3));
             p.drawEllipse(slot.adjusted(2, 2, -2, -2));
         }
         // "<Name>'s Page" label BELOW the avatar — only while focused, like the Switch (the name is
@@ -579,15 +574,9 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     top_row->addWidget(status, 0, Qt::AlignTop);
     outer->addWidget(topbar);
 
-    // The selected game's name is a header line right under the User Page area (Switch home layout),
-    // left-aligned with the tiles. The tiles and dock sit below it.
-    game_title = new QLabel(this);
-    game_title->setFixedHeight(40);
-    game_title->setStyleSheet(
-        QStringLiteral("font-size:28px; font-weight:500; color:%1; padding-left:100px;")
-            .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff")));
-    outer->addWidget(game_title);
-    outer->addSpacing(46);
+    // The Switch HOME shows no game-name header — the tile itself is the game. Just breathing room
+    // between the User Page strip and the games rail. (game_title stays null; its updaters no-op.)
+    outer->addSpacing(78);
 
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
@@ -834,6 +823,8 @@ void DeckGamesPage::SetZone(Zone new_zone) {
     zone = new_zone;
     dock->SetActive(zone == Zone::Dock);
     avatar->SetFocused(zone == Zone::Avatar); // shimmering round ring, not a square border
+    delegate->SetRailActive(zone == Zone::Rail); // dim the selected tile when focus leaves the rail
+    rail->viewport()->update();
     if (zone == Zone::Rail && !rail->currentIndex().isValid() && filter->rowCount() > 0) {
         rail->setCurrentIndex(rail_model->index(0, 0));
     }
