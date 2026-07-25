@@ -9,6 +9,12 @@
 /// Marks the trailing round "All Software" cell in the game rail (shared by the page's rail model and
 /// the delegate). A high UserRole the game-list model never returns, so real game rows read false.
 inline constexpr int DeckAllSoftwareRole = Qt::UserRole + 777;
+/// Group folder tile: value is the group index (>= 0). Real game rows return an invalid variant.
+inline constexpr int DeckGroupRole = Qt::UserRole + 778;
+/// The trailing "＋ New Group" tile (bool true).
+inline constexpr int DeckNewGroupRole = Qt::UserRole + 779;
+/// True when a game tile should show an "in this group" check (used in the add-to-group picker).
+inline constexpr int DeckGroupMemberRole = Qt::UserRole + 780;
 
 /**
  * Draws a game as a large box-art card with a rounded frame, a title beneath it, and a bright
