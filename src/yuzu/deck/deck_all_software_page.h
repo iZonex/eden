@@ -16,6 +16,7 @@ class QLabel;
 class QListView;
 class QTimer;
 class QResizeEvent;
+class QPaintEvent;
 class DeckKeyboard;
 class GroupsModel;
 class AllSoftHeader;
@@ -51,6 +52,7 @@ signals:
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    void paintEvent(QPaintEvent* event) override; // filter/sort icons in the left column
 
 private:
     enum class View { Software, Groups, GroupDetail, AddGames };
