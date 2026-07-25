@@ -32,6 +32,12 @@ public:
         phase = p;
     }
 
+    /// Whether the rail is the focused zone. When false (focus is on the dock or avatar), the selected
+    /// tile is shown dimmed rather than with the bright white frame, so only one thing reads as active.
+    void SetRailActive(bool active) {
+        rail_active = active;
+    }
+
     /// Override the box-art tile size (the home rail uses the theme default; the All Software grid
     /// uses a smaller, denser tile). 0 = fall back to the theme constant.
     void SetCardSize(int w, int h) {
@@ -59,6 +65,7 @@ public:
 
 private:
     int phase = 0;
+    bool rail_active = true; ///< false → dim the selected tile (focus is on the dock/avatar)
     int lead_indent = 0;
     quint64 suspended_id = 0;
     int card_w = 0; ///< 0 = use DeckTheme::kGridCardWidth
