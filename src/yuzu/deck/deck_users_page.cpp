@@ -207,7 +207,8 @@ DeckUsersPage::DeckUsersPage(Core::System& system_, QWidget* parent)
     pane_layout->addWidget(profile_status);
     pane_layout->addStretch(1);
     hint = new QLabel(
-        tr("Each user keeps their own save data.  A: set active   X: add user   B: back"), pane);
+        tr("Each user keeps their own save data.  A: set active   X: add   Y: delete   B: back"),
+        pane);
     hint->setAlignment(Qt::AlignHCenter);
     hint->setStyleSheet(
         QStringLiteral("font-size: 18px; color: %1;").arg(DeckTheme::kTextDim.name()));
@@ -254,7 +255,13 @@ void DeckUsersPage::UpdateDetail() {
     const Common::UUID uuid = users[selected];
     profile_avatar->setPixmap(RoundAvatar(LoadAvatar(uuid), 180));
     profile_name->setText(UserName(manager, uuid));
-    profile_status->setText(uuid == manager.GetLastOpenedUser() ? tr("Active user") : tr("Tap A to make active"));
+    if (confirming_delete) {
+        profile_status->setText(tr("Delete this profile? Its save data stays on disk.  A: delete   B: cancel"));
+    } else {
+        profile_status->setText(uuid == manager.GetLastOpenedUser()
+                                    ? tr("Active user")
+                                    : tr("Tap A to make active"));
+    }
 }
 
 void DeckUsersPage::SetSelected(int index) {
@@ -264,6 +271,7 @@ void DeckUsersPage::SetSelected(int index) {
 }
 
 bool DeckUsersPage::OnNavigate(Qt::Key key) {
+    confirming_delete = false; // moving the selection cancels a pending delete
     if (key == Qt::Key_Up) {
         SetSelected(selected - 1);
     } else if (key == Qt::Key_Down) {
@@ -273,6 +281,10 @@ bool DeckUsersPage::OnNavigate(Qt::Key key) {
 }
 
 bool DeckUsersPage::OnAccept() {
+    if (confirming_delete) {
+        DeleteSelectedUser(); // A confirms the pending deletion
+        return true;
+    }
     if (selected >= static_cast<int>(users.size())) {
         CreateUser();
         return true;
@@ -285,6 +297,56 @@ bool DeckUsersPage::OnAccept() {
         Rebuild();
     }
     return true;
+}
+
+bool DeckUsersPage::OnSecondaryAction() {
+    // Y asks to delete the selected profile; a second press (A) confirms. Never on the "add" row,
+    // and never the last remaining profile.
+    if (selected < 0 || selected >= static_cast<int>(users.size()) || users.size() <= 1) {
+        return true;
+    }
+    confirming_delete = true;
+    UpdateDetail();
+    emit HintsChanged();
+    return true;
+}
+
+bool DeckUsersPage::OnBack() {
+    if (confirming_delete) {
+        confirming_delete = false; // B cancels the pending delete instead of leaving
+        UpdateDetail();
+        emit HintsChanged();
+        return true;
+    }
+    return false; // let the shell return home
+}
+
+void DeckUsersPage::DeleteSelectedUser() {
+    confirming_delete = false;
+    if (selected < 0 || selected >= static_cast<int>(users.size()) || users.size() <= 1) {
+        return;
+    }
+    auto& manager = system.GetProfileManager();
+    const Common::UUID victim = users[selected];
+    const bool was_active = victim == manager.GetLastOpenedUser();
+    manager.RemoveUser(victim);
+    // If the active user was removed, promote the first remaining profile to active.
+    if (was_active) {
+        for (const auto& u : manager.GetAllUsers()) {
+            if (u.IsValid()) {
+                manager.OpenUser(u);
+                manager.StoreOpenedUsers();
+                break;
+            }
+        }
+    }
+    manager.WriteUserSaveFile(); // persist the removal to profiles.dat
+    emit SaveConfigRequested();
+    if (selected > 0) {
+        --selected;
+    }
+    Rebuild();
+    emit HintsChanged();
 }
 
 bool DeckUsersPage::OnPrimaryAction() {
@@ -302,6 +364,7 @@ void DeckUsersPage::CreateUser() {
 }
 
 void DeckUsersPage::OnActivated() {
+    confirming_delete = false;
     Rebuild();
     if (pending_focus.IsValid()) {
         for (std::size_t i = 0; i < users.size(); ++i) {
@@ -320,9 +383,20 @@ void DeckUsersPage::FocusUser(Common::UUID uuid) {
 }
 
 std::vector<DeckHint> DeckUsersPage::Hints() const {
-    return {
-        {QStringLiteral("A"), tr("Set active")},
+    if (confirming_delete) {
+        return {
+            {QStringLiteral("A"), tr("Confirm delete")},
+            {QStringLiteral("B"), tr("Cancel")},
+        };
+    }
+    const bool on_add = selected >= static_cast<int>(users.size());
+    std::vector<DeckHint> hints{
+        {QStringLiteral("A"), on_add ? tr("Add user") : tr("Set active")},
         {QStringLiteral("X"), tr("Add user")},
-        {QStringLiteral("B"), tr("Back")},
     };
+    if (!on_add && users.size() > 1) {
+        hints.push_back({QStringLiteral("Y"), tr("Delete user")});
+    }
+    hints.push_back({QStringLiteral("B"), tr("Back")});
+    return hints;
 }
