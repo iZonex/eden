@@ -49,6 +49,58 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     const int side = std::min(box.width(), box.height());
     QRect art_rect(box.center().x() - side / 2, box.center().y() - side / 2, side, side);
 
+    // The trailing "All Software" cell is a round button, not box art: a grey circle with a 3x3 grid
+    // glyph (the Switch's "all software" mark), and a *circular* selection ring — drawn here so it
+    // never gets the rectangular tile frame that would look broken around a circle.
+    if (index.data(DeckAllSoftwareRole).toBool()) {
+        // A round button a bit smaller than a full tile, vertically centred in the row so it reads as
+        // a control at the end of the games rather than another piece of box art.
+        const qreal d = side * 0.78;
+        const QRectF circle(art_rect.center().x() - d / 2, art_rect.center().y() - d / 2, d, d);
+        if (selected) {
+            for (int s = 8; s >= 1; --s) { // soft lift, matching the tiles
+                painter->setBrush(QColor(0, 0, 0, 5));
+                painter->setPen(Qt::NoPen);
+                painter->drawEllipse(circle.adjusted(-s, -s + 1, s, s + 2));
+            }
+        }
+        // Flat surface circle with a grey glyph — the same language as the system dock.
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(DeckTheme::kSurface);
+        painter->drawEllipse(circle);
+
+        const qreal cell = d * 0.16;
+        const qreal gap = d * 0.08;
+        const qreal grid = cell * 3 + gap * 2;
+        const qreal ox = circle.center().x() - grid / 2;
+        const qreal oy = circle.center().y() - grid / 2;
+        painter->setBrush(DeckTheme::kTextDim);
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                painter->drawRoundedRect(
+                    QRectF(ox + c * (cell + gap), oy + r * (cell + gap), cell, cell), cell * 0.3,
+                    cell * 0.3);
+            }
+        }
+        if (selected) {
+            // White ring hugging the circle, then a shimmering iridescent ring around it — the tile
+            // selection, but circular.
+            painter->setBrush(Qt::NoBrush);
+            painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 3));
+            painter->drawEllipse(circle.adjusted(-2, -2, 2, 2));
+            QConicalGradient cg(circle.center(), static_cast<qreal>(phase));
+            cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
+            cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
+            cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
+            cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
+            cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
+            painter->setPen(QPen(QBrush(cg), 3));
+            painter->drawEllipse(circle.adjusted(-5, -5, 5, 5));
+        }
+        painter->restore();
+        return;
+    }
+
     if (selected) {
         // A soft drop shadow so the focused tile lifts off the page (the Switch's subtle highlight),
         // rather than a heavy coloured glow.
