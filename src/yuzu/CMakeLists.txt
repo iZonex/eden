@@ -173,6 +173,8 @@ add_executable(yuzu
     deck/deck_users_page.cpp deck/deck_users_page.h
     deck/deck_album_page.cpp deck/deck_album_page.h
     deck/deck_all_software_page.cpp deck/deck_all_software_page.h
+    deck/deck_groups.cpp deck/deck_groups.h
+    deck/deck_keyboard.cpp deck/deck_keyboard.h
     deck/deck_shell.cpp deck/deck_shell.h
 
     hotkeys.cpp
