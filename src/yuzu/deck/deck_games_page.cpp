@@ -440,9 +440,12 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::SmoothPixmapTransform, true);
         for (std::size_t i = 0; i < avatars.size(); ++i) {
+            const bool is_active = i == 0; // OrderedUserUuids puts the active (current) user first
             const int x = static_cast<int>(i) * kStep;
             const QRectF slot(x, 0, kCell, kCell);
             const QRectF face((kCell - kFace) / 2.0 + x, (kCell - kFace) / 2.0, kFace, kFace);
+            // Dim the non-active users a touch so the active profile (whose saves games use) stands out.
+            p.setOpacity(is_active ? 1.0 : 0.5);
             if (!avatars[i].isNull()) {
                 QPainterPath clip;
                 clip.addEllipse(face);
@@ -454,6 +457,17 @@ protected:
                 p.setPen(Qt::NoPen);
                 p.setBrush(DeckTheme::kSurface);
                 p.drawEllipse(face);
+            }
+            p.setOpacity(1.0);
+            // Active-user badge: a small accent dot with a white outline at the bottom-right of the
+            // active avatar, so it is always clear which profile is current (switch it on the Users
+            // page). It moves to whichever avatar is active because that user sorts to the front.
+            if (is_active) {
+                const qreal d = kFace * 0.30;
+                const QRectF dot(face.right() - d, face.bottom() - d, d, d);
+                p.setPen(QPen(DeckTheme::kSurface, 3));
+                p.setBrush(DeckTheme::kAccent);
+                p.drawEllipse(dot);
             }
             // Focus ring on the highlighted avatar — each is its own entry into that user's My Page.
             if (focused && static_cast<int>(i) == highlight) {
