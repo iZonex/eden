@@ -3,6 +3,7 @@
 
 #include <QTimer>
 
+#include "common/logging/log.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
 #include "hid_core/hid_types.h"
@@ -66,12 +67,22 @@ unsigned long long DeckNavigator::CollectButtons() const {
         Core::HID::NpadIdType::Player6,  Core::HID::NpadIdType::Player7,
         Core::HID::NpadIdType::Player8,
     };
-    for (const auto npad_id : npad_ids) {
-        auto* const controller = hid_core.GetEmulatedController(npad_id);
+    // Diagnostic: which slots are actually connected, so a "can't navigate" report tells us whether
+    // the pad the user holds reaches any emulated controller at all. Logged only when the set changes.
+    static unsigned connected_mask = 0xFFFFFFFF;
+    unsigned mask = 0;
+    for (std::size_t i = 0; i < npad_ids.size(); ++i) {
+        auto* const controller = hid_core.GetEmulatedController(npad_ids[i]);
         if (controller == nullptr || !controller->IsConnected()) {
             continue;
         }
+        mask |= (1U << i);
         raw |= static_cast<unsigned long long>(controller->GetNpadButtons().raw);
+    }
+    if (mask != connected_mask) {
+        connected_mask = mask;
+        LOG_INFO(Input, "Deck menu: connected npad slots mask=0x{:X} (bit0=Handheld, bit1=P1, …)",
+                 mask);
     }
     return raw;
 }

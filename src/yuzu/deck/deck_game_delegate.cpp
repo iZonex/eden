@@ -103,6 +103,87 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         return;
     }
 
+    // A rounded-rect selection frame (white ring + shimmering iridescent ring), shared by the group
+    // folder and new-group tiles so their selection matches the box-art tiles.
+    const auto draw_rect_selection = [&](const QRectF& r, int rad) {
+        painter->setBrush(Qt::NoBrush);
+        painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 3));
+        QPainterPath inner;
+        inner.addRoundedRect(r.adjusted(-2, -2, 2, 2), rad + 2, rad + 2);
+        painter->drawPath(inner);
+        QConicalGradient cg(r.center(), static_cast<qreal>(phase));
+        cg.setColorAt(0.00, QColor(0x4f, 0x86, 0xff));
+        cg.setColorAt(0.30, QColor(0xa9, 0x5c, 0xf0));
+        cg.setColorAt(0.55, QColor(0xff, 0x6b, 0xb0));
+        cg.setColorAt(0.80, QColor(0x37, 0xd0, 0xf0));
+        cg.setColorAt(1.00, QColor(0x4f, 0x86, 0xff));
+        painter->setPen(QPen(QBrush(cg), 3));
+        QPainterPath outer;
+        outer.addRoundedRect(r.adjusted(-5, -5, 5, 5), rad + 5, rad + 5);
+        painter->drawPath(outer);
+    };
+
+    // Group folder tile: a rounded card with a folder glyph and the group's name.
+    if (index.data(DeckGroupRole).isValid()) {
+        const QRectF card = art_rect;
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(DeckTheme::kSurface);
+        painter->drawRoundedRect(card, radius, radius);
+        // Folder shape.
+        const qreal fw = card.width() * 0.5;
+        const qreal fh = fw * 0.72;
+        const QRectF folder(card.center().x() - fw / 2, card.center().y() - fh / 2 - card.height() * 0.06,
+                            fw, fh);
+        painter->setBrush(DeckTheme::kAccent);
+        QPainterPath tab;
+        tab.addRoundedRect(QRectF(folder.left(), folder.top() - fh * 0.18, fw * 0.42, fh * 0.3),
+                           4, 4);
+        painter->drawPath(tab);
+        QPainterPath body;
+        body.addRoundedRect(folder, 8, 8);
+        painter->drawPath(body);
+        // Name under the folder.
+        QFont f = painter->font();
+        f.setPixelSize(std::max(14, static_cast<int>(card.width() * 0.09)));
+        painter->setFont(f);
+        painter->setPen(DeckTheme::kText);
+        painter->drawText(QRectF(card.left() + 6, card.bottom() - card.height() * 0.26,
+                                 card.width() - 12, card.height() * 0.22),
+                          Qt::AlignHCenter | Qt::AlignTop,
+                          index.data(Qt::DisplayRole).toString());
+        if (selected) {
+            draw_rect_selection(card, radius);
+        }
+        painter->restore();
+        return;
+    }
+
+    // "New group" tile: a dashed rounded card with a big plus.
+    if (index.data(DeckNewGroupRole).toBool()) {
+        const QRectF card = art_rect;
+        QPen dash(DeckTheme::kTextDim, 2, Qt::DashLine);
+        painter->setPen(dash);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(card, radius, radius);
+        painter->setPen(QPen(DeckTheme::kTextDim, 4, Qt::SolidLine, Qt::RoundCap));
+        const qreal s = card.width() * 0.16;
+        painter->drawLine(QPointF(card.center().x() - s, card.center().y()),
+                          QPointF(card.center().x() + s, card.center().y()));
+        painter->drawLine(QPointF(card.center().x(), card.center().y() - s),
+                          QPointF(card.center().x(), card.center().y() + s));
+        QFont f = painter->font();
+        f.setPixelSize(std::max(14, static_cast<int>(card.width() * 0.09)));
+        painter->setFont(f);
+        painter->drawText(QRectF(card.left() + 6, card.bottom() - card.height() * 0.26,
+                                 card.width() - 12, card.height() * 0.22),
+                          Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("New Group"));
+        if (selected) {
+            draw_rect_selection(card, radius);
+        }
+        painter->restore();
+        return;
+    }
+
     if (selected) {
         // A soft drop shadow so the focused tile lifts off the page (the Switch's subtle highlight),
         // rather than a heavy coloured glow.
@@ -189,6 +270,23 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         const qreal g = bw * 0.9;
         painter->drawRoundedRect(QRectF(cx - g - bw, cy - bh / 2, bw, bh), bw * 0.4, bw * 0.4);
         painter->drawRoundedRect(QRectF(cx + g, cy - bh / 2, bw, bh), bw * 0.4, bw * 0.4);
+    }
+
+    // In the add-to-group picker, a member game wears a green check at the top-left of its art.
+    if (index.data(DeckGroupMemberRole).toBool()) {
+        const qreal d = art_rect.width() / 4.2;
+        const QRectF badge(art_rect.left() + 10, art_rect.top() + 10, d, d);
+        painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 235), 2));
+        painter->setBrush(QColor(0x3c, 0xb3, 0x71)); // green
+        painter->drawEllipse(badge);
+        painter->setPen(QPen(QColor(0xff, 0xff, 0xff), badge.width() * 0.11, Qt::SolidLine,
+                             Qt::RoundCap, Qt::RoundJoin));
+        painter->setBrush(Qt::NoBrush);
+        QPainterPath check;
+        check.moveTo(badge.left() + badge.width() * 0.28, badge.top() + badge.height() * 0.52);
+        check.lineTo(badge.left() + badge.width() * 0.44, badge.top() + badge.height() * 0.68);
+        check.lineTo(badge.left() + badge.width() * 0.74, badge.top() + badge.height() * 0.34);
+        painter->drawPath(check);
     }
 
     // No per-tile title or favourite badge: the Switch shows only the selected game's name, above the
