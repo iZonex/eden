@@ -109,8 +109,7 @@ private:
     class DeckGameDelegate* delegate = nullptr;
     QWidget* placeholder = nullptr;
     DockBar* dock = nullptr;
-    QLabel* clock = nullptr;
-    QLabel* battery = nullptr;
+    class StatusCluster* status = nullptr; ///< time + wifi + battery graphic (top-right)
     class AvatarBadge* avatar = nullptr; ///< the active user's profile picture + name (top-left)
     Common::UUID active_uuid{}; ///< the active (last-opened) user — A on the avatar opens their page
     QLabel* game_title = nullptr; ///< the selected game's name, above the rail
