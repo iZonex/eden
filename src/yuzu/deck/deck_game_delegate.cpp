@@ -49,13 +49,13 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     const int side = std::min(box.width(), box.height());
     QRect art_rect(box.center().x() - side / 2, box.center().y() - side / 2, side, side);
 
-    // The trailing "All Software" cell is a round button, not box art: a grey circle with a 3x3 grid
-    // glyph (the Switch's "all software" mark), and a *circular* selection ring — drawn here so it
-    // never gets the rectangular tile frame that would look broken around a circle.
+    // The trailing "All Software" cell is a round button, not box art: a grey circle with the Switch's
+    // 2x2 rounded-square mark, and a *circular* selection ring — drawn here so it never gets the
+    // rectangular tile frame that would look broken around a circle.
     if (index.data(DeckAllSoftwareRole).toBool()) {
         // A round button a bit smaller than a full tile, vertically centred in the row so it reads as
         // a control at the end of the games rather than another piece of box art.
-        const qreal d = side * 0.78;
+        const qreal d = side * 0.72;
         const QRectF circle(art_rect.center().x() - d / 2, art_rect.center().y() - d / 2, d, d);
         if (selected) {
             for (int s = 8; s >= 1; --s) { // soft lift, matching the tiles
@@ -69,17 +69,18 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setBrush(DeckTheme::kSurface);
         painter->drawEllipse(circle);
 
-        const qreal cell = d * 0.16;
-        const qreal gap = d * 0.08;
-        const qreal grid = cell * 3 + gap * 2;
+        // The Switch mark: a 2x2 grid of chunky rounded squares (four squares), centred.
+        const qreal cell = d * 0.26;
+        const qreal gap = d * 0.11;
+        const qreal grid = cell * 2 + gap;
         const qreal ox = circle.center().x() - grid / 2;
         const qreal oy = circle.center().y() - grid / 2;
         painter->setBrush(DeckTheme::kTextDim);
-        for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) {
+        for (int r = 0; r < 2; ++r) {
+            for (int c = 0; c < 2; ++c) {
                 painter->drawRoundedRect(
-                    QRectF(ox + c * (cell + gap), oy + r * (cell + gap), cell, cell), cell * 0.3,
-                    cell * 0.3);
+                    QRectF(ox + c * (cell + gap), oy + r * (cell + gap), cell, cell), cell * 0.28,
+                    cell * 0.28);
             }
         }
         if (selected) {
