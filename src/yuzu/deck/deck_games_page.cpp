@@ -701,6 +701,22 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     // Keep the game-name label in sync with the selected tile.
     connect(rail->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex&, const QModelIndex&) { UpdateGameTitle(); });
+
+    // Games load asynchronously, so the home may open on an empty rail (dock-focused). When the first
+    // game appears, snap focus to the rail with a valid selection so it's navigable from the first
+    // press — without this the rail stayed unfocused until the user detoured through another zone.
+    connect(rail_model, &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex&, int, int) {
+                if (initial_focus_pending && !IsEmpty()) {
+                    initial_focus_pending = false;
+                    rail->setVisible(true);
+                    placeholder->setVisible(false);
+                    if (!rail->currentIndex().isValid()) {
+                        rail->setCurrentIndex(rail_model->index(0, 0));
+                    }
+                    SetZone(Zone::Rail);
+                }
+            });
 }
 
 DeckGamesPage::~DeckGamesPage() = default;
@@ -848,7 +864,19 @@ void DeckGamesPage::OnActivated() {
     const bool empty = IsEmpty();
     placeholder->setVisible(empty);
     rail->setVisible(!empty);
-    SetZone(empty ? Zone::Dock : Zone::Rail);
+    if (empty) {
+        // Games are still loading (or none) — focus the dock for now, and remember to snap to the
+        // rail as soon as the first game appears (see the rowsInserted hook in the ctor).
+        initial_focus_pending = true;
+        SetZone(Zone::Dock);
+    } else {
+        // Land on a valid first tile so the rail is navigable from the very first press.
+        if (!rail->currentIndex().isValid()) {
+            rail->setCurrentIndex(rail_model->index(0, 0));
+        }
+        initial_focus_pending = false;
+        SetZone(Zone::Rail);
+    }
 }
 
 bool DeckGamesPage::OnNavigate(Qt::Key key) {
