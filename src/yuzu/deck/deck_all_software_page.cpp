@@ -282,7 +282,12 @@ DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* 
     grid->setFocusPolicy(Qt::NoFocus);
     grid->setFrameShape(QFrame::NoFrame);
     grid->setStyleSheet(QStringLiteral("QListView{background:transparent;}"));
-    outer->addWidget(grid, 1);
+    // A left gutter holds the filter/sort column, so the games start indented (Switch layout).
+    auto* grid_row = new QHBoxLayout();
+    grid_row->setContentsMargins(0, 0, 0, 0);
+    grid_row->addSpacing(56);
+    grid_row->addWidget(grid, 1);
+    outer->addLayout(grid_row, 1);
 
     connect(grid, &QAbstractItemView::clicked, this, [this](const QModelIndex&) { OnAccept(); });
 
@@ -337,7 +342,7 @@ void DeckAllSoftwarePage::paintEvent(QPaintEvent* event) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     const QColor ink = DeckTheme::kTextDim;
-    const qreal cx = 30;                 // left gutter (page margin is 64, grid starts there)
+    const qreal cx = 90;                 // centred in the left gutter (grid starts at ~120)
     const qreal top = grid->y() + 26.0;  // aligned with the first game row
     p.setBrush(Qt::NoBrush);
     // Funnel.
