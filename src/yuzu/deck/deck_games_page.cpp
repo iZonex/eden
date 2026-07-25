@@ -590,13 +590,15 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     top_row->addWidget(status, 0, Qt::AlignTop);
     outer->addWidget(topbar);
 
-    outer->addStretch();
-
-    // The selected game's name floats in a rounded pill below its tile (Switch style), only while a
-    // tile is focused — not a permanent label. Positioned in UpdateGameTitle; not in the layout.
+    // The selected game's name is a header line right under the User Page area (Switch home layout),
+    // left-aligned with the tiles. The tiles and dock sit below it.
     game_title = new QLabel(this);
-    game_title->setAlignment(Qt::AlignCenter);
-    game_title->setVisible(false);
+    game_title->setFixedHeight(40);
+    game_title->setStyleSheet(
+        QStringLiteral("font-size:28px; font-weight:500; color:%1; padding-left:100px;")
+            .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff")));
+    outer->addWidget(game_title);
+    outer->addSpacing(46);
 
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
@@ -659,7 +661,7 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
 
     // The system dock sits directly under the game rail (not pinned to the bottom), so the whole
     // games + dock group reads as one centered block like the Switch home screen.
-    outer->addSpacing(6);
+    outer->addSpacing(24);
     dock = new DockBar(this);
     dock->on_tapped = [this](int) {
         zone = Zone::Dock;
@@ -719,6 +721,12 @@ void DeckGamesPage::ApplyTheme() {
     // just need a repaint on a theme change.
     if (status != nullptr) {
         status->update();
+    }
+    if (game_title != nullptr) {
+        game_title->setStyleSheet(
+            QStringLiteral("font-size:28px; font-weight:500; color:%1; padding-left:100px;")
+                .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5")
+                                              : QStringLiteral("#6ab4ff")));
     }
 }
 
@@ -833,33 +841,15 @@ void DeckGamesPage::UpdateGameTitle() {
         return;
     }
     const QModelIndex idx = rail->currentIndex();
-    // Only over a focused game tile (not the dock/avatar zones, not the All Software button).
-    const bool show = zone == Zone::Rail && !grid_mode && idx.isValid() &&
-                      !idx.data(DeckAllSoftwareRole).toBool();
-    if (!show) {
-        game_title->setVisible(false);
-        return;
+    // The selected game's name (blank on the dock/avatar zones or the All Software button).
+    QString t;
+    if (zone == Zone::Rail && idx.isValid() && !idx.data(DeckAllSoftwareRole).toBool()) {
+        t = idx.data(GameListItemPath::TitleRole).toString();
+        if (t.isEmpty()) {
+            t = idx.data(Qt::DisplayRole).toString();
+        }
     }
-    QString t = idx.data(GameListItemPath::TitleRole).toString();
-    if (t.isEmpty()) {
-        t = idx.data(Qt::DisplayRole).toString();
-    }
-    const QString blue =
-        DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5") : QStringLiteral("#6ab4ff");
-    game_title->setStyleSheet(
-        QStringLiteral("background:%1; color:%2; border-radius:12px; padding:6px 18px; font-size:22px;")
-            .arg(DeckTheme::kSurface.name(), blue));
     game_title->setText(t);
-    game_title->adjustSize();
-    // Position the pill centred under the focused tile.
-    const QRect vr = rail->visualRect(idx);
-    const QPoint tl = rail->viewport()->mapTo(this, vr.topLeft());
-    int x = tl.x() + vr.width() / 2 - game_title->width() / 2;
-    x = std::clamp(x, 8, width() - game_title->width() - 8);
-    const int y = tl.y() + vr.height() - game_title->height() / 2;
-    game_title->move(x, y);
-    game_title->setVisible(true);
-    game_title->raise();
 }
 
 void DeckGamesPage::OnActivated() {
