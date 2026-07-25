@@ -609,7 +609,7 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     clock_timer = new QTimer(this);
     clock_timer->setInterval(10'000);
     const auto update_status = [this] {
-        clock->setText(QTime::currentTime().toString(QStringLiteral("HH:mm")));
+        clock->setText(QTime::currentTime().toString(QStringLiteral("h:mm AP"))); // 2:22 PM, like the Switch
         const QString bat = ReadBatteryText();
         battery->setText(bat);
         battery->setVisible(!bat.isEmpty());
