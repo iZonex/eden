@@ -19,6 +19,7 @@
 #include "yuzu/deck/deck_hint_bar.h"
 #include "yuzu/deck/deck_navigator.h"
 #include "yuzu/deck/deck_album_page.h"
+#include "yuzu/deck/deck_all_software_page.h"
 #include "yuzu/deck/deck_settings_page.h"
 #include "yuzu/deck/deck_shell.h"
 #include "yuzu/deck/deck_theme.h"
@@ -77,12 +78,14 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     settings_page = new DeckSettingsPage(system, stack);
     users_page = new DeckUsersPage(system, stack);
     album_page = new DeckAlbumPage(stack);
+    all_software_page = new DeckAllSoftwarePage(games_page->LibraryModel(), stack);
     stack->addWidget(games_page);
     stack->addWidget(detail_page);
     stack->addWidget(controllers_page);
     stack->addWidget(settings_page);
     stack->addWidget(users_page);
     stack->addWidget(album_page);
+    stack->addWidget(all_software_page);
     root_layout->addWidget(stack, 1);
 
     hint_bar = new DeckHintBar(system.HIDCore(), this);
@@ -131,6 +134,11 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     });
     connect(games_page, &DeckGamesPage::OpenSettings, this, [this] { ShowPage(settings_page); });
     connect(games_page, &DeckGamesPage::OpenAlbum, this, [this] { ShowPage(album_page); });
+    connect(games_page, &DeckGamesPage::OpenAllSoftware, this,
+            [this] { ShowPage(all_software_page); });
+    connect(all_software_page, &DeckAllSoftwarePage::GamePlayRequested, this,
+            [this](QString path, u64 program_id) { emit GameChosen(std::move(path), program_id); });
+    connect(all_software_page, &DeckPage::HintsChanged, this, &DeckShell::UpdateHints);
     connect(games_page, &DeckGamesPage::SleepRequested, this, [] {
         // Switch HOME Sleep — put the Deck itself to sleep (systemd handles the suspend on SteamOS).
         QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("suspend")});
