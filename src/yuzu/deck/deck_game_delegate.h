@@ -4,6 +4,11 @@
 #pragma once
 
 #include <QStyledItemDelegate>
+#include <Qt>
+
+/// Marks the trailing round "All Software" cell in the game rail (shared by the page's rail model and
+/// the delegate). A high UserRole the game-list model never returns, so real game rows read false.
+inline constexpr int DeckAllSoftwareRole = Qt::UserRole + 777;
 
 /**
  * Draws a game as a large box-art card with a rounded frame, a title beneath it, and a bright

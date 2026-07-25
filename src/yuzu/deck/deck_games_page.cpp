@@ -112,20 +112,16 @@ std::vector<QPixmap> AvatarsFor(const std::vector<Common::UUID>& uuids, int size
     return out;
 }
 
-// Row role marking the trailing "All Software" tile. A high UserRole the game-list model never
-// returns, so real game rows read it as an empty variant (false).
-constexpr int kAllSoftwareRole = Qt::UserRole + 777;
-
-// One-row model holding the Nintendo-style round "All Software" tile. Concatenated after the library
-// filter (see the rail setup) so it is always the last cell of the game row; selecting it opens the
-// full-library grid.
+// One-row model marking the Nintendo-style round "All Software" button. Concatenated after the
+// library filter (see the rail setup) so it is always the last cell of the game row; the delegate
+// paints the round button from the DeckAllSoftwareRole marker (no pixmap here, so it stays crisp and
+// follows the theme). In grid mode ("See all") the row hides itself so the full library grid shows
+// games only, like the Switch.
 class AllSoftwareModel : public QAbstractListModel {
 public:
-    explicit AllSoftwareModel(QObject* parent = nullptr) : QAbstractListModel(parent) {
-        icon = RenderIcon();
-    }
+    explicit AllSoftwareModel(QObject* parent = nullptr) : QAbstractListModel(parent) {}
     int rowCount(const QModelIndex& parent = {}) const override {
-        return parent.isValid() ? 0 : 1;
+        return (parent.isValid() || hidden) ? 0 : 1;
     }
     // Match the game-list model's column count so QConcatenateTablesProxyModel lines the two up.
     int columnCount(const QModelIndex& parent = {}) const override {
@@ -136,42 +132,25 @@ public:
             return {};
         }
         switch (role) {
-        case kAllSoftwareRole:
+        case DeckAllSoftwareRole:
             return true;
-        case Qt::DecorationRole:
-            return icon;
         case Qt::DisplayRole:
             return QAbstractListModel::tr("All Software");
         default:
             return {};
         }
     }
+    void SetHidden(bool h) {
+        if (hidden == h) {
+            return;
+        }
+        beginResetModel();
+        hidden = h;
+        endResetModel();
+    }
 
 private:
-    // A circular button with a 3x3 grid of rounded squares — the Switch's "all software" glyph.
-    static QPixmap RenderIcon() {
-        const int s = DeckTheme::kGridCardWidth; // square, matches box-art tiles
-        QPixmap pm(s, s);
-        pm.fill(Qt::transparent);
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(DeckTheme::kSurface);
-        p.drawEllipse(QRectF(0, 0, s, s));
-        const qreal cell = s * 0.15;
-        const qreal gap = s * 0.075;
-        const qreal grid = cell * 3 + gap * 2;
-        const qreal o = (s - grid) / 2.0;
-        p.setBrush(DeckTheme::kTextDim);
-        for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) {
-                p.drawRoundedRect(QRectF(o + c * (cell + gap), o + r * (cell + gap), cell, cell),
-                                  cell * 0.3, cell * 0.3);
-            }
-        }
-        return pm;
-    }
-    QPixmap icon;
+    bool hidden = false;
 };
 
 /// The Deck's battery charge as a "NN%" string for the Switch-style status cluster, or empty when no
@@ -545,7 +524,8 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     // QConcatenateTablesProxyModel preserves row order, so game row N maps 1:1 to filter row N.
     auto* concat = new QConcatenateTablesProxyModel(this);
     concat->addSourceModel(filter);
-    concat->addSourceModel(new AllSoftwareModel(this));
+    all_software = new AllSoftwareModel(this);
+    concat->addSourceModel(all_software);
     rail_model = concat;
 
     rail = new QListView(this);
@@ -704,6 +684,11 @@ void DeckGamesPage::SetGridMode(bool on) {
         return;
     }
     grid_mode = on;
+    // The full library grid shows games only — hide the round All Software button there (it is the
+    // control that opened the grid), like the Switch's All Software view.
+    if (all_software != nullptr) {
+        static_cast<AllSoftwareModel*>(all_software)->SetHidden(on);
+    }
     if (on) {
         // "See all": reflow the single-row rail into a full wrapping grid of every game, hiding the
         // dock so the whole area is the library. No leading indent here — a plain aligned grid.
@@ -715,6 +700,10 @@ void DeckGamesPage::SetGridMode(bool on) {
         rail->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         rail->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         dock->setVisible(false);
+        // The All Software cell we came from is gone now; land on the first game.
+        if (rail_model->rowCount() > 0) {
+            rail->setCurrentIndex(rail_model->index(0, 0));
+        }
     } else {
         delegate->SetLeadIndent(DeckTheme::kGridLeadIndent);
         rail->setWrapping(false);
@@ -864,7 +853,7 @@ bool DeckGamesPage::OnAccept() {
         emit OpenUsers(focus); // A on an avatar opens that specific user's My Page
     } else if (zone == Zone::Dock) {
         ActivateDock();
-    } else if (rail->currentIndex().data(kAllSoftwareRole).toBool()) {
+    } else if (rail->currentIndex().data(DeckAllSoftwareRole).toBool()) {
         SetGridMode(!grid_mode); // A on the trailing All Software tile opens/closes the full library
     } else {
         PlayCurrentGame(); // A boots the game straight away
