@@ -281,10 +281,10 @@ public:
     std::function<void(int)> on_tapped;
 
 protected:
-    static constexpr int kSq = 72;      // icon cell
-    static constexpr int kGap = 34;     // gap between icons
+    static constexpr int kSq = 62;      // icon cell (Switch proportions: icon ≈ 36/960 of screen)
+    static constexpr int kGap = 28;     // gap between icons
     static constexpr int kPad = 16;     // pill inner padding
-    static constexpr int kIconPx = 54;  // grey glyph size
+    static constexpr int kIconPx = 46;  // glyph size
 
     qreal PillWidth() const {
         return kCount * kSq + (kCount - 1) * kGap + 2 * kPad;
@@ -382,18 +382,18 @@ private:
     std::array<QString, kCount> names;
 };
 
-/// The Switch home's top-left "My Page": the active user's round avatar with "<Name>'s Page" beside
+/// The Switch home's top-left "My Page": the active user's round avatar with "<Name>'s Page" BELOW
 /// it (the full multi-user row lives on the Users page). Focusable — a shimmering ring when focused;
 /// A opens the Users page. Plain QWidget (no MOC).
 class AvatarBadge : public QWidget {
 public:
     explicit AvatarBadge(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedHeight(kCell);
+        RefitSize();
     }
     void SetAvatar(QPixmap a, const QString& user_name) {
         avatar = std::move(a);
         name = user_name;
-        RefitWidth();
+        RefitSize();
         update();
     }
     void SetFocused(bool f) {
@@ -404,22 +404,26 @@ public:
     }
 
 protected:
-    static constexpr int kCell = 60; // avatar slot (52px face + ring room)
-    static constexpr int kFace = 52;
+    static constexpr int kRing = 62;  // avatar area (face + ring room)
+    static constexpr int kFace = 56;  // avatar diameter
+    static constexpr int kGap = 4;    // gap between avatar and label
+    static constexpr int kLabelH = 26;
 
-    void RefitWidth() {
+    void RefitSize() {
         QFont f = font();
-        f.setPixelSize(22);
+        f.setPixelSize(20);
         const QString label = tr("%1's Page").arg(name);
-        setFixedWidth(kCell + 12 + QFontMetrics(f).horizontalAdvance(label) + 8);
+        setFixedWidth(std::max(kRing, QFontMetrics(f).horizontalAdvance(label) + 6));
+        setFixedHeight(kRing + kGap + kLabelH);
     }
 
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        const QRectF slot(0, 0, kCell, kCell);
-        const QRectF face((kCell - kFace) / 2.0, (kCell - kFace) / 2.0, kFace, kFace);
+        // Avatar circle, top-left.
+        const QRectF slot(0, 0, kRing, kRing);
+        const QRectF face((kRing - kFace) / 2.0, (kRing - kFace) / 2.0, kFace, kFace);
         if (!avatar.isNull()) {
             QPainterPath clip;
             clip.addEllipse(face);
@@ -441,13 +445,13 @@ protected:
             p.setPen(QPen(QBrush(lg), 3));
             p.drawEllipse(slot.adjusted(2, 2, -2, -2));
         }
-        // "<Name>'s Page" label beside the avatar, in Switch blue.
+        // "<Name>'s Page" label BELOW the avatar, in Switch blue.
         QFont f = font();
-        f.setPixelSize(22);
+        f.setPixelSize(20);
         p.setFont(f);
         p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
-        p.drawText(QRectF(kCell + 12, 0, width() - kCell - 12, kCell),
-                   Qt::AlignVCenter | Qt::AlignLeft, tr("%1's Page").arg(name));
+        p.drawText(QRectF(0, kRing + kGap, width(), kLabelH), Qt::AlignLeft | Qt::AlignVCenter,
+                   tr("%1's Page").arg(name));
     }
 
 private:
@@ -503,20 +507,20 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     // Top status strip, laid out like the Switch home: the active user's avatar on the LEFT, the
     // clock + battery cluster on the RIGHT, both on the same line.
     auto* topbar = new QWidget(this);
-    topbar->setFixedHeight(74);
+    topbar->setFixedHeight(114);
     auto* top_row = new QHBoxLayout(topbar);
-    top_row->setContentsMargins(40, 0, 44, 0);
-    avatar = new AvatarBadge(topbar); // active user's avatar (left); focusable to open Users
-    top_row->addWidget(avatar, 0, Qt::AlignVCenter);
+    top_row->setContentsMargins(40, 16, 44, 0); // content starts at the top; the name drops below
+    avatar = new AvatarBadge(topbar); // active user's avatar + name (top-left); focusable → Users
+    top_row->addWidget(avatar, 0, Qt::AlignTop);
     top_row->addStretch();
     clock = new QLabel(topbar);
     clock->setStyleSheet(
         QStringLiteral("font-size:28px; font-weight: 500; color:%1;").arg(DeckTheme::kText.name()));
-    top_row->addWidget(clock, 0, Qt::AlignVCenter);
+    top_row->addWidget(clock, 0, Qt::AlignTop);
     battery = new QLabel(topbar);
     battery->setStyleSheet(QStringLiteral("font-size:21px; font-weight: 500; color:%1; padding-left:16px;")
                                .arg(DeckTheme::kTextDim.name()));
-    top_row->addWidget(battery, 0, Qt::AlignVCenter);
+    top_row->addWidget(battery, 0, Qt::AlignTop);
     outer->addWidget(topbar);
 
     outer->addStretch();
