@@ -40,6 +40,7 @@
 #include <QPixmap>
 #include "common/fs/fs_util.h"
 #include "common/fs/path_util.h"
+#include "common/string_util.h"
 #include "core/constants.h"
 #include "core/core.h"
 #include "core/hle/service/acc/profile_manager.h"
@@ -77,46 +78,17 @@ QPixmap UserAvatar(const Common::UUID& uuid, int size) {
     return round;
 }
 
-/// Every user's round avatar, active user first — the Switch's top-left "My Page" cluster.
-constexpr std::size_t kMaxAvatars = 6; // the Switch shows a short row — don't stretch across the top
 
-// The console's users in HOME-Menu order: the active (last-opened) user first, then the rest, capped
-// so a console with many profiles never runs the row off the screen.
-std::vector<Common::UUID> OrderedUserUuids(const Service::Account::ProfileManager& manager) {
-    std::vector<Common::UUID> out;
-    const auto add_unique = [&out](const Common::UUID& uuid) {
-        if (!uuid.IsValid()) {
-            return;
-        }
-        // Dedupe: a corrupt profiles.dat can hold the same UUID in two slots, which would otherwise
-        // show the same user twice in the row.
-        for (const auto& seen : out) {
-            if (seen == uuid) {
-                return;
-            }
-        }
-        out.push_back(uuid);
-    };
-    add_unique(manager.GetLastOpenedUser()); // active user leads
-    for (const auto& uuid : manager.GetAllUsers()) {
-        add_unique(uuid);
+/// The active user's display name (falls back to "User").
+QString ActiveUserName(const Service::Account::ProfileManager& manager, const Common::UUID& uuid) {
+    Service::Account::ProfileBase profile{};
+    if (!uuid.IsValid() || !manager.GetProfileBase(uuid, profile)) {
+        return QObject::tr("User");
     }
-    if (out.size() > kMaxAvatars) {
-        out.resize(kMaxAvatars);
-    }
-    return out;
-}
-
-std::vector<QPixmap> AvatarsFor(const std::vector<Common::UUID>& uuids, int size) {
-    std::vector<QPixmap> out;
-    out.reserve(uuids.size());
-    for (const auto& uuid : uuids) {
-        out.push_back(UserAvatar(uuid, size));
-    }
-    if (out.empty()) {
-        out.emplace_back(); // keep the badge non-empty even with no valid profile
-    }
-    return out;
+    const auto text = Common::StringFromFixedZeroTerminatedBuffer(
+        reinterpret_cast<const char*>(profile.username.data()), profile.username.size());
+    const QString name = QString::fromStdString(text).trimmed();
+    return name.isEmpty() ? QObject::tr("User") : name;
 }
 
 // The Switch home shows a short row of the most-recent titles, not the whole library — the rest live
@@ -410,21 +382,18 @@ private:
     std::array<QString, kCount> names;
 };
 
-/// The Switch home's top-left "My Page": a row of every user's round avatar (active user first). A
-/// focusable cluster — when focused, the active user's avatar grows a clean iridescent ring; A opens
-/// the Users page. Plain QWidget (no MOC).
+/// The Switch home's top-left "My Page": the active user's round avatar with "<Name>'s Page" beside
+/// it (the full multi-user row lives on the Users page). Focusable — a shimmering ring when focused;
+/// A opens the Users page. Plain QWidget (no MOC).
 class AvatarBadge : public QWidget {
 public:
     explicit AvatarBadge(QWidget* parent = nullptr) : QWidget(parent) {
         setFixedHeight(kCell);
-        setFixedWidth(kCell);
     }
-    void SetAvatars(std::vector<QPixmap> a) {
-        avatars = std::move(a);
-        if (avatars.empty()) {
-            avatars.emplace_back();
-        }
-        setFixedWidth(kCell + (static_cast<int>(avatars.size()) - 1) * kStep);
+    void SetAvatar(QPixmap a, const QString& user_name) {
+        avatar = std::move(a);
+        name = user_name;
+        RefitWidth();
         update();
     }
     void SetFocused(bool f) {
@@ -433,69 +402,58 @@ public:
             update();
         }
     }
-    void SetHighlight(int i) {
-        if (highlight != i) {
-            highlight = i;
-            update();
-        }
-    }
 
 protected:
-    static constexpr int kCell = 60; // per-avatar slot (52px face + ring room)
+    static constexpr int kCell = 60; // avatar slot (52px face + ring room)
     static constexpr int kFace = 52;
-    static constexpr int kStep = 60; // horizontal advance per avatar (face + gap)
+
+    void RefitWidth() {
+        QFont f = font();
+        f.setPixelSize(22);
+        const QString label = tr("%1's Page").arg(name);
+        setFixedWidth(kCell + 12 + QFontMetrics(f).horizontalAdvance(label) + 8);
+    }
 
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        for (std::size_t i = 0; i < avatars.size(); ++i) {
-            const bool is_active = i == 0; // OrderedUserUuids puts the active (current) user first
-            const int x = static_cast<int>(i) * kStep;
-            const QRectF slot(x, 0, kCell, kCell);
-            const QRectF face((kCell - kFace) / 2.0 + x, (kCell - kFace) / 2.0, kFace, kFace);
-            // Dim the non-active users a touch so the active profile (whose saves games use) stands out.
-            p.setOpacity(is_active ? 1.0 : 0.5);
-            if (!avatars[i].isNull()) {
-                QPainterPath clip;
-                clip.addEllipse(face);
-                p.save();
-                p.setClipPath(clip);
-                p.drawPixmap(face.toRect(), avatars[i]);
-                p.restore();
-            } else {
-                p.setPen(Qt::NoPen);
-                p.setBrush(DeckTheme::kSurface);
-                p.drawEllipse(face);
-            }
-            p.setOpacity(1.0);
-            // Active-user badge: a small accent dot with a white outline at the bottom-right of the
-            // active avatar, so it is always clear which profile is current (switch it on the Users
-            // page). It moves to whichever avatar is active because that user sorts to the front.
-            if (is_active) {
-                const qreal d = kFace * 0.30;
-                const QRectF dot(face.right() - d, face.bottom() - d, d, d);
-                p.setPen(QPen(DeckTheme::kSurface, 3));
-                p.setBrush(DeckTheme::kAccent);
-                p.drawEllipse(dot);
-            }
-            // Focus ring on the highlighted avatar — each is its own entry into that user's My Page.
-            if (focused && static_cast<int>(i) == highlight) {
-                QLinearGradient lg(slot.topLeft(), slot.bottomRight());
-                lg.setColorAt(0.0, QColor(0x4f, 0x86, 0xff));
-                lg.setColorAt(0.5, QColor(0xa9, 0x5c, 0xf0));
-                lg.setColorAt(1.0, QColor(0xff, 0x6b, 0xb0));
-                p.setBrush(Qt::NoBrush);
-                p.setPen(QPen(QBrush(lg), 3));
-                p.drawEllipse(slot.adjusted(2, 2, -2, -2));
-            }
+        const QRectF slot(0, 0, kCell, kCell);
+        const QRectF face((kCell - kFace) / 2.0, (kCell - kFace) / 2.0, kFace, kFace);
+        if (!avatar.isNull()) {
+            QPainterPath clip;
+            clip.addEllipse(face);
+            p.save();
+            p.setClipPath(clip);
+            p.drawPixmap(face.toRect(), avatar);
+            p.restore();
+        } else {
+            p.setPen(Qt::NoPen);
+            p.setBrush(DeckTheme::kSurface);
+            p.drawEllipse(face);
         }
+        if (focused) {
+            QLinearGradient lg(slot.topLeft(), slot.bottomRight());
+            lg.setColorAt(0.0, QColor(0x4f, 0x86, 0xff));
+            lg.setColorAt(0.5, QColor(0xa9, 0x5c, 0xf0));
+            lg.setColorAt(1.0, QColor(0xff, 0x6b, 0xb0));
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(QBrush(lg), 3));
+            p.drawEllipse(slot.adjusted(2, 2, -2, -2));
+        }
+        // "<Name>'s Page" label beside the avatar, in Switch blue.
+        QFont f = font();
+        f.setPixelSize(22);
+        p.setFont(f);
+        p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
+        p.drawText(QRectF(kCell + 12, 0, width() - kCell - 12, kCell),
+                   Qt::AlignVCenter | Qt::AlignLeft, tr("%1's Page").arg(name));
     }
 
 private:
-    std::vector<QPixmap> avatars;
+    QPixmap avatar;
+    QString name;
     bool focused = false;
-    int highlight = 0; ///< which avatar wears the focus ring
 };
 
 namespace {
@@ -655,8 +613,9 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
         const QString bat = ReadBatteryText();
         battery->setText(bat);
         battery->setVisible(!bat.isEmpty());
-        avatar_uuids = OrderedUserUuids(system.GetProfileManager());
-        avatar->SetAvatars(AvatarsFor(avatar_uuids, 52));
+        auto& pm = system.GetProfileManager();
+        active_uuid = pm.GetLastOpenedUser();
+        avatar->SetAvatar(UserAvatar(active_uuid, 52), ActiveUserName(pm, active_uuid));
     };
     connect(clock_timer, &QTimer::timeout, this, update_status);
     update_status();
@@ -798,10 +757,6 @@ void DeckGamesPage::SetZone(Zone new_zone) {
     zone = new_zone;
     dock->SetActive(zone == Zone::Dock);
     avatar->SetFocused(zone == Zone::Avatar); // shimmering round ring, not a square border
-    if (zone == Zone::Avatar) {
-        avatar_index = 0; // land on the active user (leftmost), like the Switch
-        avatar->SetHighlight(0);
-    }
     if (zone == Zone::Rail && !rail->currentIndex().isValid() && filter->rowCount() > 0) {
         rail->setCurrentIndex(rail_model->index(0, 0));
     }
@@ -876,11 +831,7 @@ bool DeckGamesPage::OnNavigate(Qt::Key key) {
         } else if (zone == Zone::Rail) {
             MoveRail(-1);
         } else if (zone == Zone::Avatar) {
-            if (avatar_index > 0) {
-                avatar->SetHighlight(--avatar_index); // step to the previous user
-            } else {
-                SetZone(Zone::Rail); // past the first avatar → into the games (never a dead-end)
-            }
+            SetZone(Zone::Rail); // one avatar on home — sideways drops into the games
         }
         return true;
     case Qt::Key_Right:
@@ -889,12 +840,7 @@ bool DeckGamesPage::OnNavigate(Qt::Key key) {
         } else if (zone == Zone::Rail) {
             MoveRail(1);
         } else if (zone == Zone::Avatar) {
-            const int last = static_cast<int>(avatar_uuids.size()) - 1;
-            if (avatar_index < last) {
-                avatar->SetHighlight(++avatar_index); // step to the next user
-            } else {
-                SetZone(Zone::Rail); // past the last avatar → into the games
-            }
+            SetZone(Zone::Rail);
         }
         return true;
     default:
@@ -917,11 +863,7 @@ bool DeckGamesPage::OnStart() {
 
 bool DeckGamesPage::OnAccept() {
     if (zone == Zone::Avatar) {
-        const Common::UUID focus =
-            (avatar_index >= 0 && avatar_index < static_cast<int>(avatar_uuids.size()))
-                ? avatar_uuids[avatar_index]
-                : Common::UUID{};
-        emit OpenUsers(focus); // A on an avatar opens that specific user's My Page
+        emit OpenUsers(active_uuid); // A on the avatar opens the active user's My Page
     } else if (zone == Zone::Dock) {
         ActivateDock();
     } else if (rail->currentIndex().data(DeckAllSoftwareRole).toBool()) {
