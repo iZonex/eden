@@ -339,25 +339,50 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
         return false;
     }
 
-    // Reconcile is polled at ~2 Hz, so requiring the gesture held across this many samples
-    // means it was held for roughly a second — deliberate enough to avoid an accidental exit.
-    constexpr int hold_threshold = 3;
+    // Polled at ~2 Hz (500 ms); holding across this many samples ≈ 1 s — deliberate but responsive.
+    constexpr int hold_threshold = 2;
     static int hold_ticks = 0;
 
-    // Exit gesture: Minus+Plus (Select+Start) held together — present on Xbox pads, the
-    // Deck's built-in controls and Switch pads alike. A held Home button also works where
-    // present. (NpadButtonState layout: plus=bit 10, minus=bit 11.)
-    const auto exit_gesture_held = [](const Core::HID::EmulatedController& controller) {
+    // Exit gesture: Minus+Plus (Select+Start) held together — present on Xbox pads, the Deck's
+    // built-in controls and Switch pads alike. A held Home button also works where present.
+    // (NpadButton: plus=bit 10, minus=bit 11.)
+    const auto gesture_held = [](const Core::HID::EmulatedController& controller) {
         const auto npad_raw = static_cast<unsigned long long>(controller.GetNpadButtons().raw);
         const bool select_start = (npad_raw & (1ULL << 10)) != 0 && (npad_raw & (1ULL << 11)) != 0;
         const bool home = controller.GetHomeButtons().raw != 0;
         return select_start || home;
     };
 
+    // Scan every controller slot, not just Player 1 / Handheld — under Steam the active pad can land
+    // on a different npad id, and the gesture should work from whichever one the user holds.
+    static constexpr Core::HID::NpadIdType kIds[] = {
+        Core::HID::NpadIdType::Handheld, Core::HID::NpadIdType::Player1,
+        Core::HID::NpadIdType::Player2,  Core::HID::NpadIdType::Player3,
+        Core::HID::NpadIdType::Player4,  Core::HID::NpadIdType::Player5,
+        Core::HID::NpadIdType::Player6,  Core::HID::NpadIdType::Player7,
+        Core::HID::NpadIdType::Player8,
+    };
+
     bool held = false;
-    for (const auto npad_id : {Core::HID::NpadIdType::Handheld, Core::HID::NpadIdType::Player1}) {
+    // Diagnostic: log any non-zero button state (only when it changes) so a failed gesture is
+    // debuggable from the log — we can see exactly what the pad reports and on which slot.
+    static unsigned long long last_logged = 0;
+    for (const auto npad_id : kIds) {
         const auto* const controller = hid_core.GetEmulatedController(npad_id);
-        if (controller != nullptr && controller->IsConnected() && exit_gesture_held(*controller)) {
+        if (controller == nullptr || !controller->IsConnected()) {
+            continue;
+        }
+        const auto raw = static_cast<unsigned long long>(controller->GetNpadButtons().raw);
+        const auto home = static_cast<unsigned long long>(controller->GetHomeButtons().raw);
+        // Log only Plus/Minus/Home activity (bits 10,11) so normal gameplay doesn't flood the log,
+        // and only on change — enough to see whether the gesture buttons reach us and on which slot.
+        const auto gesture_bits = raw & ((1ULL << 10) | (1ULL << 11));
+        if ((gesture_bits != 0 || home != 0) && (raw ^ last_logged)) {
+            last_logged = raw;
+            LOG_INFO(Input, "Steam Deck: pad slot {} npad=0x{:X} (plus/minus/home activity)",
+                     static_cast<int>(npad_id), raw);
+        }
+        if (gesture_held(*controller)) {
             held = true;
             break;
         }
@@ -372,7 +397,7 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
     }
     if (++hold_ticks >= hold_threshold) {
         hold_ticks = -1;
-        LOG_INFO(Input, "Steam Deck: exit gesture (Select+Start) held — requesting game exit");
+        LOG_INFO(Input, "Steam Deck: HOME gesture (Select+Start) held — suspending to menu");
         return true;
     }
     return false;
