@@ -8,6 +8,7 @@
 #include <QIdentityProxyModel>
 #include <QLabel>
 #include <QListView>
+#include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
@@ -141,39 +142,8 @@ protected:
         p.drawLine(0, 66, width(), 66);
 
         if (show_controls) {
-            // Filter (funnel) + sort (up/down arrows) icons, drawn directly so they never depend on a
-            // resource load. Stacked vertically on the far left, aligned with the games — like the
-            // Switch's All Software controls.
-            const QColor ink = DeckTheme::kTextDim;
-            p.setBrush(Qt::NoBrush);
-            // Funnel.
-            {
-                const qreal x = 6, y = 74, w = 26, h = 22;
-                QPainterPath funnel;
-                funnel.moveTo(x, y);
-                funnel.lineTo(x + w, y);
-                funnel.lineTo(x + w * 0.62, y + h * 0.5);
-                funnel.lineTo(x + w * 0.62, y + h);
-                funnel.lineTo(x + w * 0.38, y + h * 0.82);
-                funnel.lineTo(x + w * 0.38, y + h * 0.5);
-                funnel.closeSubpath();
-                p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                p.drawPath(funnel);
-            }
-            // Sort arrows (to the right of the funnel).
-            {
-                const qreal x = 44, y = 74, w = 24, h = 22;
-                p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                // Up arrow (left).
-                p.drawLine(QPointF(x + 5, y + h), QPointF(x + 5, y));
-                p.drawLine(QPointF(x + 5, y), QPointF(x + 1, y + 4));
-                p.drawLine(QPointF(x + 5, y), QPointF(x + 9, y + 4));
-                // Down arrow (right).
-                p.drawLine(QPointF(x + w - 5, y), QPointF(x + w - 5, y + h));
-                p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 9, y + h - 4));
-                p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 1, y + h - 4));
-            }
-            // Current sort, right.
+            // Only the current sort text lives in the header (top-right). The funnel + sort icons are
+            // drawn by the page as a column on the far left, beside the games, like the Switch.
             f.setPixelSize(20);
             p.setFont(f);
             p.setPen(DeckTheme::kTextDim);
@@ -358,6 +328,45 @@ void DeckAllSoftwarePage::resizeEvent(QResizeEvent* event) {
     PositionNamePill();
 }
 
+void DeckAllSoftwarePage::paintEvent(QPaintEvent* event) {
+    DeckPage::paintEvent(event);
+    // Funnel + sort icons as a column on the far left, beside the games (not on the Groups tab).
+    if (view == View::Groups || keyboard->isVisible()) {
+        return;
+    }
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QColor ink = DeckTheme::kTextDim;
+    const qreal cx = 30;                 // left gutter (page margin is 64, grid starts there)
+    const qreal top = grid->y() + 26.0;  // aligned with the first game row
+    p.setBrush(Qt::NoBrush);
+    // Funnel.
+    {
+        const qreal x = cx - 14, y = top, w = 28, h = 24;
+        QPainterPath funnel;
+        funnel.moveTo(x, y);
+        funnel.lineTo(x + w, y);
+        funnel.lineTo(x + w * 0.62, y + h * 0.5);
+        funnel.lineTo(x + w * 0.62, y + h);
+        funnel.lineTo(x + w * 0.38, y + h * 0.82);
+        funnel.lineTo(x + w * 0.38, y + h * 0.5);
+        funnel.closeSubpath();
+        p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPath(funnel);
+    }
+    // Sort arrows, below the funnel.
+    {
+        const qreal x = cx - 12, y = top + 40, w = 24, h = 24;
+        p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawLine(QPointF(x + 5, y + h), QPointF(x + 5, y));
+        p.drawLine(QPointF(x + 5, y), QPointF(x + 1, y + 4));
+        p.drawLine(QPointF(x + 5, y), QPointF(x + 9, y + 4));
+        p.drawLine(QPointF(x + w - 5, y), QPointF(x + w - 5, y + h));
+        p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 9, y + h - 4));
+        p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 1, y + h - 4));
+    }
+}
+
 void DeckAllSoftwarePage::ApplyTheme() {
     QPalette pal = palette();
     pal.setColor(QPalette::Window, DeckTheme::kBackground);
@@ -454,6 +463,7 @@ void DeckAllSoftwarePage::SetView(View v) {
     }
     UpdateHeader();
     PositionNamePill();
+    update(); // repaint the left filter/sort column for the new view
     emit HintsChanged();
 }
 
