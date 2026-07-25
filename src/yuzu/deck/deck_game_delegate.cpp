@@ -18,8 +18,9 @@ QSize DeckGameDelegate::sizeHint(const QStyleOptionViewItem&, const QModelIndex&
     // very first tile's cell is wider by lead_indent (empty space on its left) so the list starts
     // indented but still scrolls out to the screen edge.
     const int lead = index.row() == 0 ? lead_indent : 0;
-    return {DeckTheme::kGridCardWidth + 2 * DeckTheme::kGridCardMargin + lead,
-            DeckTheme::kGridCardHeight + 2 * DeckTheme::kGridCardMargin};
+    const int cw = card_w > 0 ? card_w : DeckTheme::kGridCardWidth;
+    const int ch = card_h > 0 ? card_h : DeckTheme::kGridCardHeight;
+    return {cw + 2 * DeckTheme::kGridCardMargin + lead, ch + 2 * DeckTheme::kGridCardMargin};
 }
 
 void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,

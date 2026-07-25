@@ -694,6 +694,10 @@ bool DeckGamesPage::IsEmpty() const {
     return filter == nullptr || filter->rowCount() == 0;
 }
 
+QAbstractItemModel* DeckGamesPage::LibraryModel() const {
+    return filter; // the LibraryFilter: every game with art, recency-sorted (uncapped)
+}
+
 void DeckGamesPage::SetSuspendedGame(u64 program_id) {
     if (delegate != nullptr) {
         delegate->SetSuspendedProgramId(program_id);
@@ -911,7 +915,7 @@ bool DeckGamesPage::OnAccept() {
     } else if (zone == Zone::Dock) {
         ActivateDock();
     } else if (rail->currentIndex().data(DeckAllSoftwareRole).toBool()) {
-        SetGridMode(!grid_mode); // A on the trailing All Software tile opens/closes the full library
+        emit OpenAllSoftware(); // A on the trailing All Software tile opens the full-library page
     } else {
         PlayCurrentGame(); // A boots the game straight away
     }
