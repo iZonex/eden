@@ -17,12 +17,15 @@ class QListView;
 class QTimer;
 class QResizeEvent;
 class DeckKeyboard;
+class GroupsModel;
+class AllSoftHeader;
 
 /**
- * Console-mode "All Software" — the Switch HOME full-library screen, with Groups (folders). The root
- * view is a grid of group folders, a "＋ New Group" tile, then every game. Selecting a folder enters
- * that group (its games only); inside a group you can add/remove games, rename it, or delete it. A
- * gamepad on-screen keyboard names groups. A titled header with the sort order sits on top.
+ * Console-mode "All Software" — the Switch HOME full-library screen. Two tabs, switched with L/R:
+ * "Software" (the whole library grid) and "Groups" (folders). A folder opens to its games; inside a
+ * group you can add/remove games, rename, or delete. A gamepad keyboard names groups. The header
+ * carries the tabs, the filter/sort icons, and the current sort; the selected game's name floats in
+ * a pill below its tile.
  */
 class DeckAllSoftwarePage : public DeckPage {
     Q_OBJECT
@@ -32,11 +35,13 @@ public:
     ~DeckAllSoftwarePage() override;
 
     bool OnNavigate(Qt::Key key) override;
-    bool OnAccept() override;          // A — open folder / new group / launch / (add-mode) toggle member
-    bool OnBack() override;            // B — up a level, or leave to home
-    bool OnPrimaryAction() override;   // X — root: sort; group: add games
-    bool OnSecondaryAction() override; // Y — group: rename; add-mode: nothing
-    bool OnStart() override;           // + — group: delete (confirm)
+    bool OnAccept() override;
+    bool OnBack() override;
+    bool OnPrimaryAction() override;   // X — sort (Software) / add games (group)
+    bool OnSecondaryAction() override; // Y — rename group
+    bool OnStart() override;           // + — delete group (confirm)
+    bool OnPageUp() override;           // L — Software tab
+    bool OnPageDown() override;         // R — Groups tab
     std::vector<DeckHint> Hints() const override;
     void OnActivated() override;
     void ApplyTheme() override;
@@ -45,43 +50,42 @@ signals:
     void GamePlayRequested(QString path, u64 program_id);
 
 protected:
-    void resizeEvent(QResizeEvent* event) override; // keep the keyboard overlay covering the page
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
-    enum class View { Root, Group, AddGames };
+    enum class View { Software, Groups, GroupDetail, AddGames };
 
     void SetView(View v);
-    void RefreshGroups(); ///< rebuild the groups model + current-group proxies after a change
+    void RefreshGroups();
     void UpdateHeader();
     void CycleSort();
     void StartCreateGroup();
     void StartRenameGroup();
     void DeleteCurrentGroup();
     void ToggleCurrentMembership();
+    void PositionNamePill();
     int Columns() const;
     u64 CurrentProgramId() const;
 
     DeckGroups groups;
 
-    QAbstractItemModel* base = nullptr;     ///< the shared library (games page filter)
-    QSortFilterProxyModel* sorted = nullptr; ///< user sort over base (drives all game grids)
-    class GroupsModel* groups_model = nullptr;
-    QAbstractItemModel* root_model = nullptr;    ///< groups_model + sorted (the root grid)
-    QSortFilterProxyModel* group_filter = nullptr; ///< sorted, filtered to the current group's members
-    QIdentityProxyModel* member_proxy = nullptr;  ///< sorted + a member check for the add-games picker
+    QAbstractItemModel* base = nullptr;
+    QSortFilterProxyModel* sorted = nullptr;
+    GroupsModel* groups_model = nullptr;
+    QSortFilterProxyModel* group_filter = nullptr;
+    QIdentityProxyModel* member_proxy = nullptr;
 
-    QLabel* title = nullptr;
-    QLabel* sort_label = nullptr;
-    QLabel* selected_name = nullptr;
+    AllSoftHeader* header = nullptr;
+    QLabel* name_pill = nullptr;
     QListView* grid = nullptr;
     class DeckGameDelegate* delegate = nullptr;
     DeckKeyboard* keyboard = nullptr;
     QTimer* shimmer = nullptr;
 
-    View view = View::Root;
+    View view = View::Software;
     int current_group = -1;
     int phase = 0;
     int sort_mode = 0;
-    bool renaming = false; ///< the keyboard is naming (true) vs creating (false)
+    bool renaming = false;
     bool confirming_delete = false;
 };
