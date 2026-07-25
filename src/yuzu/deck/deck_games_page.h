@@ -120,4 +120,5 @@ private:
     Zone zone = Zone::Rail;
     bool grid_mode = false; ///< "See all": rail reflowed into a full wrapping grid of every game
     bool launched = false; ///< A game boot was requested; blocks a double-launch until we return.
+    bool initial_focus_pending = false; ///< snap focus to the rail once games finish loading
 };
