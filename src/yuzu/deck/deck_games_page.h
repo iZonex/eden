@@ -111,9 +111,8 @@ private:
     DockBar* dock = nullptr;
     QLabel* clock = nullptr;
     QLabel* battery = nullptr;
-    class AvatarBadge* avatar = nullptr; ///< the users' profile pictures (top-left, individually focusable)
-    std::vector<Common::UUID> avatar_uuids; ///< users in the same order as the avatar row
-    int avatar_index = 0; ///< which avatar is highlighted while the Avatar zone is focused
+    class AvatarBadge* avatar = nullptr; ///< the active user's profile picture + name (top-left)
+    Common::UUID active_uuid{}; ///< the active (last-opened) user — A on the avatar opens their page
     QLabel* game_title = nullptr; ///< the selected game's name, above the rail
     QTimer* clock_timer = nullptr;
     QTimer* shimmer_timer = nullptr; ///< advances the selection-shimmer animation
