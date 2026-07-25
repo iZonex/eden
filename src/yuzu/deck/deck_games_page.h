@@ -26,6 +26,7 @@ class QTimer;
 class QModelIndex;
 class QSortFilterProxyModel;
 class QAbstractItemModel;
+class QAbstractListModel;
 
 /**
  * The Switch-home screen: a top status strip (avatar + clock), a horizontal rail of game box art
@@ -98,6 +99,7 @@ private:
     GameListModel* model = nullptr;
     QSortFilterProxyModel* filter = nullptr; ///< Shows only real games (see LibraryFilter).
     QAbstractItemModel* rail_model = nullptr; ///< filter + trailing "All Software" tile; the rail's model
+    QAbstractListModel* all_software = nullptr; ///< the trailing tile's model (hidden in grid mode)
     QListView* rail = nullptr;
     class DeckGameDelegate* delegate = nullptr;
     QWidget* placeholder = nullptr;
