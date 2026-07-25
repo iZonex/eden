@@ -56,6 +56,9 @@ public:
 
     bool IsEmpty() const;
 
+    /// The full, recency-sorted library (every game with box art) — shared with the All Software page.
+    QAbstractItemModel* LibraryModel() const;
+
     /// Mark the title currently suspended to the HOME menu (0 = none) so its tile shows a paused badge.
     void SetSuspendedGame(u64 program_id);
 
@@ -69,8 +72,9 @@ signals:
     void OpenControllers();
     void OpenUsers(Common::UUID focus); ///< open My Page focused on the chosen user (invalid = active)
     void OpenSettings();
-    void OpenAlbum();      ///< HOME dock Album — the screenshots gallery
-    void SleepRequested(); ///< HOME dock Sleep — put the Deck to sleep
+    void OpenAlbum();       ///< HOME dock Album — the screenshots gallery
+    void OpenAllSoftware(); ///< the rail-end All Software button — the full library grid page
+    void SleepRequested();  ///< HOME dock Sleep — put the Deck to sleep
     void ExitRequested();
 
 private:

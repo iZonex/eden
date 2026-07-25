@@ -26,6 +26,13 @@ public:
         phase = p;
     }
 
+    /// Override the box-art tile size (the home rail uses the theme default; the All Software grid
+    /// uses a smaller, denser tile). 0 = fall back to the theme constant.
+    void SetCardSize(int w, int h) {
+        card_w = w;
+        card_h = h;
+    }
+
     /// Extra empty space reserved at the LEFT of the very first tile (its cell is that much wider,
     /// the art sits in the right part). This is the "start after the avatar" indent — but because it
     /// lives in the scrollable content, it scrolls away, so tiles reach the screen's left edge as you
@@ -48,4 +55,6 @@ private:
     int phase = 0;
     int lead_indent = 0;
     quint64 suspended_id = 0;
+    int card_w = 0; ///< 0 = use DeckTheme::kGridCardWidth
+    int card_h = 0; ///< 0 = use DeckTheme::kGridCardHeight
 };
