@@ -18,8 +18,8 @@
 #include "yuzu/deck/deck_theme.h"
 
 namespace {
-constexpr int kCardW = 168; // denser than the home rail's 272px box art
-constexpr int kCardH = 168;
+constexpr int kCardW = 200; // library grid: smaller than the home rail's 272px, ~5 per row
+constexpr int kCardH = 200;
 
 struct SortOption {
     const char* label;
@@ -37,6 +37,8 @@ constexpr int kSortCount = static_cast<int>(std::size(kSorts));
 
 DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* parent)
     : DeckPage(parent) {
+    setAutoFillBackground(true); // solid themed background, so it reads as its own screen
+
     // Sort on our own proxy so re-ordering here never disturbs the home rail's recency order.
     auto* proxy = new QSortFilterProxyModel(this);
     proxy->setSourceModel(library_);
@@ -108,6 +110,9 @@ DeckAllSoftwarePage::DeckAllSoftwarePage(QAbstractItemModel* library_, QWidget* 
 DeckAllSoftwarePage::~DeckAllSoftwarePage() = default;
 
 void DeckAllSoftwarePage::ApplyTheme() {
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, DeckTheme::kBackground);
+    setPalette(pal);
     title->setStyleSheet(QStringLiteral("font-size:34px; font-weight:500; color:%1;")
                              .arg(DeckTheme::kText.name()));
     const QString dim = QStringLiteral("font-size:22px; color:%1;").arg(DeckTheme::kTextDim.name());
