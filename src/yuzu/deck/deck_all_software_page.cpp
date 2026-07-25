@@ -141,12 +141,38 @@ protected:
         p.drawLine(0, 66, width(), 66);
 
         if (show_controls) {
-            // Filter + sort icons, left, below the rule.
-            const int isz = 30;
-            const QPixmap filter = DeckTheme::Icon(QStringLiteral("filter"), isz, DeckTheme::kTextDim);
-            const QPixmap sort = DeckTheme::Icon(QStringLiteral("sort"), isz, DeckTheme::kTextDim);
-            p.drawPixmap(QPointF(2, 76), filter);
-            p.drawPixmap(QPointF(2 + isz + 14, 76), sort);
+            // Filter (funnel) + sort (up/down arrows) icons, drawn directly so they never depend on a
+            // resource load. Stacked vertically on the far left, aligned with the games — like the
+            // Switch's All Software controls.
+            const QColor ink = DeckTheme::kTextDim;
+            p.setBrush(Qt::NoBrush);
+            // Funnel.
+            {
+                const qreal x = 6, y = 74, w = 26, h = 22;
+                QPainterPath funnel;
+                funnel.moveTo(x, y);
+                funnel.lineTo(x + w, y);
+                funnel.lineTo(x + w * 0.62, y + h * 0.5);
+                funnel.lineTo(x + w * 0.62, y + h);
+                funnel.lineTo(x + w * 0.38, y + h * 0.82);
+                funnel.lineTo(x + w * 0.38, y + h * 0.5);
+                funnel.closeSubpath();
+                p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                p.drawPath(funnel);
+            }
+            // Sort arrows (to the right of the funnel).
+            {
+                const qreal x = 44, y = 74, w = 24, h = 22;
+                p.setPen(QPen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                // Up arrow (left).
+                p.drawLine(QPointF(x + 5, y + h), QPointF(x + 5, y));
+                p.drawLine(QPointF(x + 5, y), QPointF(x + 1, y + 4));
+                p.drawLine(QPointF(x + 5, y), QPointF(x + 9, y + 4));
+                // Down arrow (right).
+                p.drawLine(QPointF(x + w - 5, y), QPointF(x + w - 5, y + h));
+                p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 9, y + h - 4));
+                p.drawLine(QPointF(x + w - 5, y + h), QPointF(x + w - 1, y + h - 4));
+            }
             // Current sort, right.
             f.setPixelSize(20);
             p.setFont(f);
