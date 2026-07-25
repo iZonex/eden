@@ -19,7 +19,7 @@ class QLabel;
  * Console-mode "Users" screen — the Switch multi-user manager, laid out like the reference: a left
  * sidebar listing every profile (avatar + name, the active one badged) and a right pane showing the
  * selected profile (large avatar, name, active state). A makes the selected profile active, X adds a
- * new one. Each profile keeps its own save data. Rename/delete stays in the desktop settings for now.
+ * new one, Y deletes the selected one (with a confirm). Each profile keeps its own save data.
  */
 class DeckUsersPage : public DeckPage {
     Q_OBJECT
@@ -29,8 +29,10 @@ public:
     ~DeckUsersPage() override;
 
     bool OnNavigate(Qt::Key key) override;
-    bool OnAccept() override;        // A — make the selected profile active
-    bool OnPrimaryAction() override; // ＋ / X — create a new profile
+    bool OnAccept() override;          // A — make the selected profile active
+    bool OnPrimaryAction() override;   // ＋ / X — create a new profile
+    bool OnSecondaryAction() override; // Y — delete the selected profile (confirm first)
+    bool OnBack() override;            // B — cancel a pending delete, else leave
     std::vector<DeckHint> Hints() const override;
     void OnActivated() override;
 
@@ -45,6 +47,7 @@ private:
     void UpdateDetail();
     void SetSelected(int index);
     void CreateUser();
+    void DeleteSelectedUser();
 
     Core::System& system;
     QLabel* title = nullptr;
@@ -55,5 +58,6 @@ private:
     class UserSidebar* sidebar = nullptr;
     std::vector<Common::UUID> users; ///< the valid profile UUIDs, in sidebar order
     int selected = 0;
+    bool confirming_delete = false; ///< Y pressed once; the next A confirms the deletion
     Common::UUID pending_focus{}; ///< user to select on the next OnActivated() (set from My Page)
 };
