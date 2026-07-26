@@ -316,12 +316,21 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
         }
         if (i < player_devices.size()) {
             const Common::ParamPackage& device = *player_devices[i];
-            if (!controller->IsConnected() || !BindingMatchesDevice(*controller, device)) {
+            if (!BindingMatchesDevice(*controller, device)) {
+                // A genuinely new/different device (or a port renumber) — do the full default mapping.
                 AssignDevice(input_subsystem, *controller, device);
                 ++changed;
                 LOG_INFO(Input, "Steam Deck: Player {} = '{}' (guid {} port {})", i + 1,
                          device.Get("display", "?"), device.Get("guid", "?"),
                          device.Get("port", "?"));
+            } else if (!controller->IsConnected()) {
+                // Same device, only the connection dropped (e.g. the controller applet force-
+                // disconnected it). Reconnect WITHOUT re-running the default mapping: re-mapping
+                // re-snapshots the analog centre from the live (possibly deflected) stick position and
+                // bakes that offset in as permanent drift. Keep the existing, good mapping.
+                controller->Connect();
+                ++changed;
+                LOG_INFO(Input, "Steam Deck: Player {} reconnected (kept mapping)", i + 1);
             }
         } else if (controller->IsConnected() || HasControllerBinding(*controller)) {
             controller->Disconnect();
