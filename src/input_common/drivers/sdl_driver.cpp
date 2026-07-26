@@ -1151,6 +1151,13 @@ AnalogMapping SDLDriver::GetAnalogMappingForDevice(const Common::ParamPackage& p
     }
 
     AnalogMapping mapping = {};
+    // The stick centre is captured from the live axis value. Only trust it when the stick is actually
+    // near rest — a value read mid-deflection would be baked in as the centre and read as permanent
+    // drift. If the stick is pushed past a small threshold, use 0 (no offset) instead.
+    const auto rest = [this](const PadIdentifier& id, int axis) -> float {
+        const float v = GetAxis(id, axis);
+        return std::abs(v) > 0.2f ? 0.0f : v;
+    };
     const auto bindings = GetBindings(controller);
     const auto binding_left_x = GetBindingForAxis(bindings, SDL_GAMEPAD_AXIS_LEFTX);
     const auto binding_left_y = GetBindingForAxis(bindings, SDL_GAMEPAD_AXIS_LEFTY);
@@ -1159,8 +1166,8 @@ AnalogMapping SDLDriver::GetAnalogMappingForDevice(const Common::ParamPackage& p
         PreSetController(identifier);
         PreSetAxis(identifier, binding_left_x.input.axis.axis);
         PreSetAxis(identifier, binding_left_y.input.axis.axis);
-        const auto left_offset_x = -GetAxis(identifier, binding_left_x.input.axis.axis);
-        const auto left_offset_y = GetAxis(identifier, binding_left_y.input.axis.axis);
+        const auto left_offset_x = -rest(identifier, binding_left_x.input.axis.axis);
+        const auto left_offset_y = rest(identifier, binding_left_y.input.axis.axis);
         mapping.insert_or_assign(Settings::NativeAnalog::LStick,
                      BuildParamPackageForAnalog(identifier, binding_left_x.input.axis.axis,
                                     binding_left_y.input.axis.axis,
@@ -1170,8 +1177,8 @@ AnalogMapping SDLDriver::GetAnalogMappingForDevice(const Common::ParamPackage& p
         PreSetController(identifier);
         PreSetAxis(identifier, binding_left_x.input.axis.axis);
         PreSetAxis(identifier, binding_left_y.input.axis.axis);
-        const auto left_offset_x = -GetAxis(identifier, binding_left_x.input.axis.axis);
-        const auto left_offset_y = GetAxis(identifier, binding_left_y.input.axis.axis);
+        const auto left_offset_x = -rest(identifier, binding_left_x.input.axis.axis);
+        const auto left_offset_y = rest(identifier, binding_left_y.input.axis.axis);
         mapping.insert_or_assign(Settings::NativeAnalog::LStick,
                      BuildParamPackageForAnalog(identifier, binding_left_x.input.axis.axis,
                                     binding_left_y.input.axis.axis,
@@ -1183,8 +1190,8 @@ AnalogMapping SDLDriver::GetAnalogMappingForDevice(const Common::ParamPackage& p
     PreSetController(identifier);
     PreSetAxis(identifier, binding_right_x.input.axis.axis);
     PreSetAxis(identifier, binding_right_y.input.axis.axis);
-    const auto right_offset_x = -GetAxis(identifier, binding_right_x.input.axis.axis);
-    const auto right_offset_y = GetAxis(identifier, binding_right_y.input.axis.axis);
+    const auto right_offset_x = -rest(identifier, binding_right_x.input.axis.axis);
+    const auto right_offset_y = rest(identifier, binding_right_y.input.axis.axis);
     mapping.insert_or_assign(Settings::NativeAnalog::RStick,
                              BuildParamPackageForAnalog(identifier, binding_right_x.input.axis.axis,
                                                         binding_right_y.input.axis.axis, right_offset_x,

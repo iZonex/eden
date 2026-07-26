@@ -193,17 +193,15 @@ protected:
         if (idx.data(GameListItem::TypeRole).toInt() != static_cast<int>(GameListItemType::Game)) {
             return false;
         }
-        const auto pid = idx.data(GameListItemPath::ProgramIdRole).toULongLong();
-        if (const auto it = has_art.find(pid); it != has_art.end()) {
-            return it.value();
+        // Show only real, *named* titles. Scanning SysNAND/UserNAND also surfaces system content
+        // (firmware, applets, orphan updates) that has no title and no icon; those would otherwise
+        // appear as nameless, art-less junk tiles. A named title with no box art still shows — the
+        // delegate draws a labelled placeholder for it — so nothing real is hidden.
+        QString name = idx.data(GameListItemPath::TitleRole).toString();
+        if (name.trimmed().isEmpty()) {
+            name = idx.data(Qt::DisplayRole).toString();
         }
-        // Cheap check: a real box-art pixmap is simply non-null with size. The old version called
-        // px.toImage() + pixelColor on every game, and that burst of 249 conversions on the UI thread
-        // is what froze the shell at startup. Games with no art fall to the delegate's placeholder.
-        const QPixmap px = idx.data(Qt::DecorationRole).value<QPixmap>();
-        const bool art = !px.isNull() && px.width() > 4 && px.height() > 4;
-        has_art.insert(pid, art);
-        return art;
+        return !name.trimmed().isEmpty();
     }
 
     // Recently/most-played first: games you've actually opened (play time > 0) sort to the front,
@@ -226,7 +224,6 @@ protected:
     }
 
 private:
-    mutable QHash<quint64, bool> has_art;
     const PlayTime::PlayTimeManager* play_time = nullptr;
 };
 } // namespace
