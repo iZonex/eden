@@ -224,7 +224,17 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->setClipPath(clip);
 
     const QPixmap pixmap = index.data(Qt::DecorationRole).value<QPixmap>();
-    if (!pixmap.isNull()) {
+    bool has_art = !pixmap.isNull();
+    if (has_art) {
+        // A title with no box art is given a fully-transparent default icon. Sample the centre pixel
+        // (one pixel — cheap, only for the visible tiles) to detect it, so it draws the placeholder
+        // instead of an empty/transparent tile.
+        const QImage centre = pixmap.copy(pixmap.width() / 2, pixmap.height() / 2, 1, 1).toImage();
+        if (centre.isNull() || centre.pixelColor(0, 0).alpha() < 8) {
+            has_art = false;
+        }
+    }
+    if (has_art) {
         const QPixmap scaled = pixmap.scaled(art_inner.size().toSize(), Qt::KeepAspectRatioByExpanding,
                                              Qt::SmoothTransformation);
         const int dx = (scaled.width() - static_cast<int>(art_inner.width())) / 2;
@@ -232,18 +242,32 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->drawPixmap(art_inner, scaled,
                             QRectF(dx, dy, art_inner.width(), art_inner.height()));
     } else {
-        // No box art: a neutral tile with a centered game glyph, never a blank white square.
+        // No box art: a neutral tile with a game glyph and the title, so it reads as an intentional
+        // placeholder (and stays identifiable) rather than a blank tile.
         QLinearGradient grad(art_inner.topLeft(), art_inner.bottomRight());
         grad.setColorAt(0, QColor(0xcc, 0xd1, 0xd8));
         grad.setColorAt(1, QColor(0xac, 0xb2, 0xbc));
         painter->fillRect(art_inner, grad);
-        const int gsz = static_cast<int>(art_inner.width()) / 2;
+        const int gsz = static_cast<int>(art_inner.width() / 2.6);
         const QPixmap glyph = DeckTheme::Icon(QStringLiteral("games"), gsz);
-        painter->setOpacity(0.85);
+        painter->setOpacity(0.8);
         painter->drawPixmap(QPointF(art_inner.center().x() - gsz / 2.0,
-                                    art_inner.center().y() - gsz / 2.0),
+                                    art_inner.top() + art_inner.height() * 0.22),
                             glyph);
         painter->setOpacity(1.0);
+        QString name = index.data(GameListItemPath::TitleRole).toString();
+        if (name.isEmpty()) {
+            name = index.data(Qt::DisplayRole).toString();
+        }
+        QFont nf = painter->font();
+        nf.setPixelSize(std::max(13, static_cast<int>(art_inner.width() * 0.078)));
+        painter->setFont(nf);
+        painter->setPen(QColor(0x33, 0x38, 0x40));
+        const QRectF name_rect(art_inner.left() + 10, art_inner.top() + art_inner.height() * 0.62,
+                               art_inner.width() - 20, art_inner.height() * 0.32);
+        painter->drawText(name_rect, Qt::AlignHCenter | Qt::AlignTop,
+                          painter->fontMetrics().elidedText(
+                              name, Qt::ElideRight, static_cast<int>(art_inner.width() - 20)));
     }
     painter->restore();
 
