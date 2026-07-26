@@ -238,7 +238,7 @@ public:
     enum { kAlbum = 0, kControllers = 1, kSettings = 2, kSleep = 3, kPower = 4, kCount = 5 };
 
     explicit DockBar(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedHeight(168); // room for the focused item's tooltip below the pill
+        setFixedHeight(144); // pill (icon 62 + pad 32) + the focused item's tooltip below it
         names[kAlbum] = QStringLiteral("album");
         names[kControllers] = QStringLiteral("controllers");
         names[kSettings] = QStringLiteral("settings");
@@ -573,14 +573,14 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
 
     // The selected game's name, under the User Page strip and directly above the rail so it reads as
     // that row's title (not a floating line). Left-aligned to where the tiles begin.
-    outer->addSpacing(24);
+    outer->addSpacing(6);
     game_title = new QLabel(this);
-    game_title->setFixedHeight(40);
-    game_title->setStyleSheet(QStringLiteral("font-size:28px; font-weight:500; color:%1; "
+    game_title->setFixedHeight(34);
+    game_title->setStyleSheet(QStringLiteral("font-size:26px; font-weight:500; color:%1; "
                                              "padding-left:104px;")
                                   .arg(DeckTheme::kAccent.name()));
     outer->addWidget(game_title);
-    outer->addSpacing(14);
+    outer->addSpacing(6);
 
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
@@ -643,7 +643,7 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
 
     // The system dock sits directly under the game rail (not pinned to the bottom), so the whole
     // games + dock group reads as one centered block like the Switch home screen.
-    outer->addSpacing(24);
+    outer->addSpacing(8);
     dock = new DockBar(this);
     dock->on_tapped = [this](int) {
         zone = Zone::Dock;
