@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/fs/fs.h"
@@ -57,6 +58,25 @@ std::vector<Common::ParamPackage> CollectControllers(
         }
         controllers.push_back(device);
     }
+    // De-duplicate the ONE physical Deck. Steam exposes the built-in pad twice: as its virtualised
+    // gamepad (a real product name like "Xbox One Controller", a standard button layout that maps
+    // correctly) AND as the raw "Steam Deck Controller" — same guid, but a different RAW button order
+    // that mis-maps buttons (R landed on Home -> dropped to the menu), reads a bad stick centre
+    // (drift), and doubles the player count. Since Eden reads raw joystick buttons, the raw duplicate
+    // is the broken one: when a virtual device shares its guid, drop the raw "Steam Deck Controller".
+    // This is conservative — it only removes a built-in device that a same-guid virtual already
+    // covers, so a Deck with Steam Input off (raw only, no virtual) and genuine external pads
+    // (different guids) are untouched.
+    std::unordered_set<std::string> virtual_guids;
+    for (const auto& d : controllers) {
+        if (!DeviceIsBuiltIn(d)) {
+            virtual_guids.insert(d.Get("guid", std::string{}));
+        }
+    }
+    std::erase_if(controllers, [&](const Common::ParamPackage& d) {
+        return DeviceIsBuiltIn(d) && virtual_guids.count(d.Get("guid", std::string{})) != 0;
+    });
+
     std::stable_sort(controllers.begin(), controllers.end(),
                      [&](const Common::ParamPackage& a, const Common::ParamPackage& b) {
                          return !DeviceIsBuiltIn(a) && DeviceIsBuiltIn(b);
