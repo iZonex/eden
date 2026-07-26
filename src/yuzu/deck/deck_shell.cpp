@@ -177,8 +177,11 @@ void DeckShell::resizeEvent(QResizeEvent* event) {
     // whole UI inside a safe area. The Deck's own 1280-wide panel doesn't overscan → no inset there.
     const int w = width();
     const int h = height();
-    const bool tv = w > 1600; // the Deck panel is 1280 wide; a docked TV is far wider
-    const int mx = tv ? w * 35 / 1000 : 0; // ~3.5% safe area on a TV
+    // Detect a TV by ASPECT RATIO, not width: gamescope renders the docked-TV session at 1280x720
+    // (16:9) — same width as the Deck's own 1280x800 (16:10) panel — so a width test misses it and the
+    // UI gets cropped by TV overscan. 16:9 (~1.78) => TV; the Deck panel is 16:10 (1.6).
+    const bool tv = h > 0 && (static_cast<float>(w) / static_cast<float>(h)) > 1.70f;
+    const int mx = tv ? w * 35 / 1000 : 0; // ~3.5% overscan-safe area on a TV
     const int my = tv ? h * 35 / 1000 : 0;
     if (root_layout != nullptr) {
         root_layout->setContentsMargins(mx, my, mx, my);
