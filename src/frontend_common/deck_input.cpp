@@ -356,10 +356,14 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
     // built-in controls and Switch pads alike. A held Home button also works where present.
     // (NpadButton: plus=bit 10, minus=bit 11.)
     const auto gesture_held = [](const Core::HID::EmulatedController& controller) {
+        // Deliberate TWO-button hold only: Minus+Plus (Select+Start). A single mapped button must
+        // never trigger this. On the Deck the one physical pad is exposed several times (Steam's
+        // virtual Xbox pads + the raw "Steam Deck Controller"), each with a different raw button
+        // layout; the old `|| home` shortcut fired whenever a single button (e.g. R on the raw pad)
+        // landed on the raw index that pad reports as Home — so pressing R dropped you to the menu.
+        // Requiring BOTH Plus and Minus makes it impossible for any one button to fire the gesture.
         const auto npad_raw = static_cast<unsigned long long>(controller.GetNpadButtons().raw);
-        const bool select_start = (npad_raw & (1ULL << 10)) != 0 && (npad_raw & (1ULL << 11)) != 0;
-        const bool home = controller.GetHomeButtons().raw != 0;
-        return select_start || home;
+        return (npad_raw & (1ULL << 10)) != 0 && (npad_raw & (1ULL << 11)) != 0; // Plus & Minus
     };
 
     // Scan every controller slot, not just Player 1 / Handheld — under Steam the active pad can land
