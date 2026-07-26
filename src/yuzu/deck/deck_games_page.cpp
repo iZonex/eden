@@ -193,14 +193,13 @@ protected:
         if (idx.data(GameListItem::TypeRole).toInt() != static_cast<int>(GameListItemType::Game)) {
             return false;
         }
-        // Show only real, *named* titles. Scanning SysNAND/UserNAND also surfaces system content
-        // (firmware, applets, orphan updates) that has no title and no icon; those would otherwise
-        // appear as nameless, art-less junk tiles. A named title with no box art still shows — the
-        // delegate draws a labelled placeholder for it — so nothing real is hidden.
-        QString name = idx.data(GameListItemPath::TitleRole).toString();
-        if (name.trimmed().isEmpty()) {
-            name = idx.data(Qt::DisplayRole).toString();
-        }
+        // A real title's NAME comes from its control data — the same source as its box art — so a
+        // title with a name has a valid control. Entries with NO control name are the broken/orphan
+        // installs that scanning SysNAND/UserNAND surfaces: an update or DLC whose base game is gone,
+        // a partial/interrupted install, or an undecryptable dump. They have a program id (so they
+        // appear) but no icon and no name, and show as junk tiles. Hide them: require a real name.
+        // (Do NOT fall back to the file/NCA name — that is exactly what let the NAND junk slip in.)
+        const QString name = idx.data(GameListItemPath::TitleRole).toString();
         return !name.trimmed().isEmpty();
     }
 
