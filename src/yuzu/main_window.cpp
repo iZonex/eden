@@ -3421,6 +3421,11 @@ void MainWindow::SuspendGameToBigPicture() {
     loading_screen->hide();
     deck_shell->show();
     deck_shell->raise();
+    // A running title can resize the top-level window (aspect-ratio fit); make sure the shell gets
+    // the whole screen back, or its lower rows (dock + hint bar) end up clipped off the bottom.
+    if (!isFullScreen()) {
+        showFullScreen();
+    }
     deck_shell->GoHome(); // HOME always lands on the home menu, never a stale inner page
     deck_shell->Activate();
 }
