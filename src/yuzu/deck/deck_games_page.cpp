@@ -574,9 +574,16 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     top_row->addWidget(status, 0, Qt::AlignTop);
     outer->addWidget(topbar);
 
-    // The Switch HOME shows no game-name header — the tile itself is the game. Just breathing room
-    // between the User Page strip and the games rail. (game_title stays null; its updaters no-op.)
-    outer->addSpacing(78);
+    // The selected game's name, under the User Page strip and directly above the rail so it reads as
+    // that row's title (not a floating line). Left-aligned to where the tiles begin.
+    outer->addSpacing(24);
+    game_title = new QLabel(this);
+    game_title->setFixedHeight(40);
+    game_title->setStyleSheet(QStringLiteral("font-size:28px; font-weight:500; color:%1; "
+                                             "padding-left:104px;")
+                                  .arg(DeckTheme::kAccent.name()));
+    outer->addWidget(game_title);
+    outer->addSpacing(14);
 
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
