@@ -981,8 +981,11 @@ void DeckGamesPage::ActivateDock() {
 }
 
 bool DeckGamesPage::OnSecondaryAction() {
-    // Favourites were removed in favour of recently-played sorting; Y does nothing on the home rail.
-    return false;
+    // Y is the direct route to the full library. The round All Software tile lives at the END of the
+    // rail, a dozen tiles to the right, so on a handheld it reads as "there is no game list" — give
+    // it a button that works from anywhere on the home screen, and advertise it in the hint bar.
+    emit OpenAllSoftware();
+    return true;
 }
 
 bool DeckGamesPage::OnBack() {
@@ -1014,6 +1017,13 @@ void DeckGamesPage::PlayCurrentGame() {
     if (!path.isEmpty()) {
         launched = true;
         emit GamePlayRequested(path, program_id);
+        // The boot is synchronous, so by the time it returns it has either handed the window to the
+        // renderer (we are hidden and no longer fed input) or bailed out — an undecryptable dump, a
+        // missing key, a cancelled user select — leaving us on screen. Re-arm either way: the flag
+        // only exists to swallow a second press while a boot runs a nested event loop (loading
+        // screen, error dialog). Leaving it latched on a failed boot made A dead on the home rail
+        // until the user detoured through a sub-page (which re-activates and clears it).
+        launched = false;
     }
 }
 
@@ -1049,13 +1059,20 @@ std::vector<DeckHint> DeckGamesPage::Hints() const {
         };
     }
     if (zone == Zone::Avatar) {
-        return {{QStringLiteral("A"), tr("Users")}};
+        return {
+            {QStringLiteral("A"), tr("Users")},
+            {QStringLiteral("Y"), tr("All Software")},
+        };
     }
     if (zone == Zone::Dock) {
-        return {{QStringLiteral("A"), tr("Open")}};
+        return {
+            {QStringLiteral("A"), tr("Open")},
+            {QStringLiteral("Y"), tr("All Software")},
+        };
     }
     return {
         {QStringLiteral("A"), tr("Play")},
+        {QStringLiteral("Y"), tr("All Software")},
         {QStringLiteral("+"), tr("Options")},
     };
 }
