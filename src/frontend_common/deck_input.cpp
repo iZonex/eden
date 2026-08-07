@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -43,6 +44,123 @@ bool DeviceIsBuiltIn(const Common::ParamPackage& device) {
            display.find("Steam Controller") != std::string::npos;
 }
 
+/// True when SDL fully understands the device as a *gamepad* — i.e. it has an SDL_Gamepad behind it,
+/// so its buttons and axes carry real, semantic bindings (this is south, that is the left trigger).
+///
+/// Why this matters so much: for a device SDL only knows as a bare joystick, the SDL driver's
+/// GetAnalogMappingForDevice returns NOTHING (it bails out on a null SDL_Gamepad) and
+/// GetButtonMappingForDevice falls back to reusing the SDL_GamepadButton *enum values* as raw
+/// joystick button indices — a layout that matches no real controller. So an unrecognised pad ends
+/// up with scrambled buttons and, worse, with its sticks left pointing at whatever the previous
+/// device's config said. That is exactly the "with a pad everything is fine, without one the menu
+/// eats A and the stick drifts" failure: the external pad is always recognised, the Deck's built-in
+/// (as Steam or hidapi happens to expose it) is not always.
+///
+/// The empty analog mapping is the cheapest honest probe available from here, and it is the very
+/// thing we need anyway. Cached per device identity — the answer cannot change for a given
+/// guid+port, and this runs on a 2 Hz timer.
+bool DeviceIsRecognizedGamepad(InputCommon::InputSubsystem& input_subsystem,
+                               const Common::ParamPackage& device) {
+    static std::unordered_map<std::string, bool> cache;
+    const std::string key = device.Get("guid", "") + "/" + device.Get("port", "");
+    if (const auto it = cache.find(key); it != cache.end()) {
+        return it->second;
+    }
+    const bool recognized = !input_subsystem.GetAnalogMappingForDevice(device).empty();
+    cache.emplace(key, recognized);
+    LOG_INFO(Input, "Steam Deck: '{}' (guid {} port {}) — SDL gamepad: {}",
+             device.Get("display", "?"), device.Get("guid", "?"), device.Get("port", "?"),
+             recognized ? "yes" : "NO (raw joystick, using the standard layout)");
+    return recognized;
+}
+
+/// Base of a raw input param: the engine + device identity every binding below shares.
+Common::ParamPackage RawParam(const Common::ParamPackage& device) {
+    Common::ParamPackage param;
+    param.Set("engine", device.Get("engine", "sdl"));
+    param.Set("port", device.Get("port", 0));
+    param.Set("guid", device.Get("guid", ""));
+    return param;
+}
+
+Common::ParamPackage RawButton(const Common::ParamPackage& device, int button) {
+    auto param = RawParam(device);
+    param.Set("button", button);
+    return param;
+}
+
+Common::ParamPackage RawHat(const Common::ParamPackage& device, const std::string& direction) {
+    auto param = RawParam(device);
+    param.Set("hat", 0);
+    param.Set("direction", direction);
+    return param;
+}
+
+/// An analog trigger used as a button (ZL/ZR), pressed past the half-way point.
+Common::ParamPackage RawTrigger(const Common::ParamPackage& device, int axis) {
+    auto param = RawParam(device);
+    param.Set("axis", axis);
+    param.Set("threshold", "0.5");
+    param.Set("invert", "+");
+    return param;
+}
+
+/// A stick over two raw axes. Same param shape a recognised gamepad gets, with a zero centre
+/// offset: an unrecognised pad gives us no trustworthy rest reading, and guessing one is what bakes
+/// a permanent drift into the config.
+Common::ParamPackage RawStick(const Common::ParamPackage& device, int axis_x, int axis_y) {
+    auto param = RawParam(device);
+    param.Set("axis_x", axis_x);
+    param.Set("axis_y", axis_y);
+    param.Set("offset_x", 0.0f);
+    param.Set("offset_y", 0.0f);
+    param.Set("invert_x", "+");
+    param.Set("invert_y", "+");
+    return param;
+}
+
+/// The standard layout of a modern gamepad as the Linux kernel enumerates it (BTN_SOUTH, BTN_EAST,
+/// BTN_WEST, BTN_NORTH, shoulders, Select, Start, Guide, stick clicks; D-pad on hat 0; triggers on
+/// axes 4/5; sticks on axes 0/1 and 2/3). The Deck's built-in controls follow it, as does every
+/// Xbox-style pad. Used when SDL hands us no bindings of its own, in place of the upstream fallback
+/// that puts L/R on the stick clicks and the D-pad on buttons that do not exist.
+///
+/// Mapped by PRINTED label (physical south = "A"), matching the swap applied to recognised pads
+/// below, so the button the user sees as A is Switch A on every controller.
+///
+/// The mapping is TOTAL — every button the Switch has appears, and the ones with no counterpart here
+/// are explicitly unbound. Leaving them out instead would keep whatever the config already held for
+/// them, i.e. a raw button index belonging to a pad that is no longer the one being used; on a
+/// matching port that stale index fires on a real, unrelated button.
+///
+/// Home and Screenshot are among those unbound on purpose: a wrong guess at Home is not a dead
+/// button but a live one that yanks the user out of the game (this is how a plain R press once
+/// dropped them to the menu), and nothing in the UI depends on either.
+InputCommon::ButtonMapping StandardRawButtonMapping(const Common::ParamPackage& device) {
+    namespace Btn = Settings::NativeButton;
+    InputCommon::ButtonMapping mapping;
+    for (int i = 0; i < Btn::NumButtons; ++i) {
+        mapping.insert_or_assign(static_cast<Btn::Values>(i), Common::ParamPackage{});
+    }
+    mapping.insert_or_assign(Btn::A, RawButton(device, 0));      // south, labelled A
+    mapping.insert_or_assign(Btn::B, RawButton(device, 1));      // east, labelled B
+    mapping.insert_or_assign(Btn::X, RawButton(device, 2));      // west, labelled X
+    mapping.insert_or_assign(Btn::Y, RawButton(device, 3));      // north, labelled Y
+    mapping.insert_or_assign(Btn::L, RawButton(device, 4));
+    mapping.insert_or_assign(Btn::R, RawButton(device, 5));
+    mapping.insert_or_assign(Btn::Minus, RawButton(device, 6));  // Select / View
+    mapping.insert_or_assign(Btn::Plus, RawButton(device, 7));   // Start / Menu
+    mapping.insert_or_assign(Btn::LStick, RawButton(device, 9));
+    mapping.insert_or_assign(Btn::RStick, RawButton(device, 10));
+    mapping.insert_or_assign(Btn::ZL, RawTrigger(device, 4));
+    mapping.insert_or_assign(Btn::ZR, RawTrigger(device, 5));
+    mapping.insert_or_assign(Btn::DUp, RawHat(device, "up"));
+    mapping.insert_or_assign(Btn::DDown, RawHat(device, "down"));
+    mapping.insert_or_assign(Btn::DLeft, RawHat(device, "left"));
+    mapping.insert_or_assign(Btn::DRight, RawHat(device, "right"));
+    return mapping;
+}
+
 /// Collects the real gamepads SDL exposes, excluding the keyboard/mouse pseudo-device (no guid/port)
 /// and Steam Input's empty "Steam Virtual Gamepad" phantom slots. The Deck's built-in controller is
 /// sorted to the end (identified by name) so external pads come first.
@@ -76,6 +194,23 @@ std::vector<Common::ParamPackage> CollectControllers(
     std::erase_if(controllers, [&](const Common::ParamPackage& d) {
         return DeviceIsBuiltIn(d) && virtual_guids.count(d.Get("guid", std::string{})) != 0;
     });
+
+    // Second de-duplication pass, by capability rather than by name. The guid check above only
+    // catches a raw duplicate that shares its guid with the virtual pad; Steam can just as well
+    // hand the same physical Deck a *different* guid for each exposure, and then both copies
+    // survive — with nothing but SDL's enumeration order deciding which one becomes Player 1. Pick
+    // by what the device can actually do instead: when any properly recognised gamepad is present,
+    // an unrecognised joystick alongside it is either that duplicate or junk, so drop it. Only when
+    // nothing at all is recognised do we keep them, and map them by the standard layout above.
+    const bool any_recognized =
+        std::any_of(controllers.begin(), controllers.end(), [&](const Common::ParamPackage& d) {
+            return DeviceIsRecognizedGamepad(input_subsystem, d);
+        });
+    if (any_recognized) {
+        std::erase_if(controllers, [&](const Common::ParamPackage& d) {
+            return !DeviceIsRecognizedGamepad(input_subsystem, d);
+        });
+    }
 
     std::stable_sort(controllers.begin(), controllers.end(),
                      [&](const Common::ParamPackage& a, const Common::ParamPackage& b) {
@@ -116,12 +251,20 @@ bool BindingMatchesDevice(const Core::HID::EmulatedController& controller,
 void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
                          Core::HID::EmulatedController& controller,
                          const Common::ParamPackage& device) {
+    const bool recognized = DeviceIsRecognizedGamepad(input_subsystem, device);
+
     controller.EnableConfiguration();
-    auto button_mapping = input_subsystem.GetButtonMappingForDevice(device);
+
+    // Only ask SDL for a mapping when it actually has one. For an unrecognised pad the driver
+    // answers with the enum-index fallback (L/R on the stick clicks, Home on a shoulder, a D-pad on
+    // buttons that do not exist) — worse than useless, since it looks like a valid mapping.
+    auto button_mapping =
+        recognized ? input_subsystem.GetButtonMappingForDevice(device) : InputCommon::ButtonMapping{};
     // Map by the pad's PRINTED labels (Xbox / Steam Deck layout), not by physical position. The
     // default mapping is positional (Switch A = the east button), but on an Xbox/Deck pad the east
     // button is labelled B — so "A" would fire Switch B. Swap A<->B and X<->Y so the button the user
     // sees as A is Switch A, B is B, etc. (Steam Deck's built-in pad uses the Xbox layout too.)
+    // The standard layout below is already label-ordered, so this only applies to SDL's mapping.
     if (button_mapping.contains(Settings::NativeButton::A) &&
         button_mapping.contains(Settings::NativeButton::B)) {
         std::swap(button_mapping[Settings::NativeButton::A],
@@ -132,17 +275,44 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
         std::swap(button_mapping[Settings::NativeButton::X],
                   button_mapping[Settings::NativeButton::Y]);
     }
+
+    // Fill in the standard layout for a pad SDL gave us nothing for. Deliberately NOT applied on top
+    // of a recognised pad's mapping: SDL knows that hardware better than any assumption here does,
+    // and a pad that already works must not be second-guessed. (A recognised pad that still ends up
+    // without a usable A is caught by the reconcile pass instead, which parks it rather than
+    // re-mapping it forever.)
+    if (!recognized) {
+        for (const auto& [index, param] : StandardRawButtonMapping(device)) {
+            button_mapping.insert_or_assign(index, param);
+        }
+    }
     for (const auto& [index, param] : button_mapping) {
         controller.SetButtonParam(index, param);
     }
-    for (const auto& [index, param] : input_subsystem.GetAnalogMappingForDevice(device)) {
+
+    // Sticks. An empty analog mapping (what an unrecognised pad yields) must never be left as-is:
+    // the controller would keep the *previous* device's stick params — the external pad's axes, or
+    // its baked-in centre offset — which reads as a stick that drifts or does not move at all.
+    auto stick_mapping = input_subsystem.GetAnalogMappingForDevice(device);
+    if (stick_mapping.empty()) {
+        stick_mapping.insert_or_assign(Settings::NativeAnalog::LStick, RawStick(device, 0, 1));
+        stick_mapping.insert_or_assign(Settings::NativeAnalog::RStick, RawStick(device, 2, 3));
+    }
+    for (const auto& [index, param] : stick_mapping) {
         controller.SetStickParam(index, param);
     }
+
     for (const auto& [index, param] : input_subsystem.GetMotionMappingForDevice(device)) {
         controller.SetMotionParam(index, param);
     }
     controller.DisableConfiguration();
     controller.SaveCurrentConfig();
+
+    // Log what the pad actually ended up bound to — the two params that decide whether the console
+    // UI responds at all (A) and whether the stick is sane (LStick).
+    LOG_INFO(Input, "Steam Deck: mapped '{}' — A = [{}], LStick = [{}]", device.Get("display", "?"),
+             controller.GetButtonParam(Settings::NativeButton::A).Serialize(),
+             controller.GetStickParam(Settings::NativeAnalog::LStick).Serialize());
 }
 
 /// Maps `device` onto `controller`, makes it a Pro Controller and connects it.
@@ -288,6 +458,23 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
     }
     constexpr std::size_t max_players = 8;
 
+    // One-time re-map after an input fix. A config written by an earlier build can hold a mapping
+    // this one considers broken — the built-in pad bound through SDL's enum-index fallback, or a
+    // stick left pointing at the axes of a pad that is long gone. It still matches by guid+port, so
+    // nothing below would ever replace it and the user would stay broken after updating. Force
+    // exactly one full re-map, recorded by a marker file so it never fights their own tuning again.
+    static bool force_remap = [] {
+        const auto marker =
+            Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_input_mapping_v3";
+        if (Common::FS::Exists(marker)) {
+            return false;
+        }
+        std::ofstream marker_file{marker};
+        marker_file << "1\n";
+        LOG_INFO(Input, "Steam Deck: input profile v3 — re-mapping every controller once");
+        return true;
+    }();
+
     // Auto-detect model: controllers connect by themselves. Input flows through Steam's gamepad
     // emulation into SDL (we keep Steam Input read-only and never activate the action API, which
     // would kill input on a non-Steam shortcut). Every external pad present becomes a player, in
@@ -304,8 +491,15 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
         signature +=
             d.Get("display", "?") + "#" + d.Get("guid", "?") + "/" + d.Get("port", "?") + "; ";
     }
+    // Devices that would not take a mapping. Without this the slot below never matches its device,
+    // so every tick re-runs the full mapping: a 2 Hz storm of re-binds that also re-snapshots the
+    // stick centre each time, which is drift by construction. Forget the list whenever the set of
+    // present devices changes, so a re-plug always gets a fresh try.
+    static std::unordered_set<std::string> unmappable;
+
     if (signature != last_present_signature) {
         last_present_signature = signature;
+        unmappable.clear();
         LOG_INFO(Input, "Steam Deck: {} controller(s) present: {}", present.size(),
                  signature.empty() ? "(none)" : signature);
     }
@@ -336,10 +530,24 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
         }
         if (i < player_devices.size()) {
             const Common::ParamPackage& device = *player_devices[i];
-            if (!BindingMatchesDevice(*controller, device)) {
+            const std::string device_key =
+                device.Get("guid", "") + "/" + device.Get("port", "");
+            if (unmappable.count(device_key) != 0) {
+                continue; // already tried and it did not stick; do not loop on it
+            }
+            if (force_remap || !BindingMatchesDevice(*controller, device)) {
                 // A genuinely new/different device (or a port renumber) — do the full default mapping.
                 AssignDevice(input_subsystem, *controller, device);
                 ++changed;
+                if (!BindingMatchesDevice(*controller, device)) {
+                    unmappable.insert(device_key);
+                    LOG_ERROR(Input,
+                              "Steam Deck: Player {} would not take a mapping for '{}' (guid {} "
+                              "port {}) — leaving it alone",
+                              i + 1, device.Get("display", "?"), device.Get("guid", "?"),
+                              device.Get("port", "?"));
+                    continue;
+                }
                 LOG_INFO(Input, "Steam Deck: Player {} = '{}' (guid {} port {})", i + 1,
                          device.Get("display", "?"), device.Get("guid", "?"),
                          device.Get("port", "?"));
@@ -359,6 +567,12 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
             }
             ++changed;
         }
+    }
+
+    // Spend the one-time re-map only once a pad was actually there to re-map — the first ticks can
+    // land before SDL has finished enumerating, and a forced pass over an empty list helps nobody.
+    if (force_remap && !player_devices.empty()) {
+        force_remap = false;
     }
     return changed;
 }
