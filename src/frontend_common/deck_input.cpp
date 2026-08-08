@@ -44,6 +44,18 @@ bool DeviceIsBuiltIn(const Common::ParamPackage& device) {
            display.find("Steam Controller") != std::string::npos;
 }
 
+/// True for the pad Steam Input synthesises on the Deck: Valve vendor 0x28DE, product 0x11FF, the
+/// "Steam Virtual Gamepad". Worth naming, because the one physical Deck shows up through it under
+/// more than one face ("Steam Deck Controller" on one port, "Xbox One Controller" on another) and
+/// they all carry this same guid — so the guid is the only identity that covers the pad as a whole.
+bool DeviceIsSteamVirtualPad(const Common::ParamPackage& device) {
+    // SDL guid string, byte-wise: [bus][vendor][product][version]. Vendor sits at chars 8..11 and
+    // product at 16..19, both little-endian.
+    const std::string guid = device.Get("guid", "");
+    return guid.size() >= 20 && guid.compare(8, 4, "de28") == 0 &&
+           guid.compare(16, 4, "ff11") == 0;
+}
+
 /// True when SDL fully understands the device as a *gamepad* — i.e. it has an SDL_Gamepad behind it,
 /// so its buttons and axes carry real, semantic bindings (this is south, that is the left trigger).
 ///
@@ -263,16 +275,24 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     auto button_mapping =
         recognized ? input_subsystem.GetButtonMappingForDevice(device) : InputCommon::ButtonMapping{};
     // Map by the pad's PRINTED labels (Xbox / Steam Deck layout), not by physical position. The
-    // default mapping is positional (Switch A = the east button), but on an Xbox/Deck pad the east
+    // default mapping is positional (Switch A = the east button), but on an Xbox pad the east
     // button is labelled B — so "A" would fire Switch B. Swap A<->B and X<->Y so the button the user
-    // sees as A is Switch A, B is B, etc. (Steam Deck's built-in pad uses the Xbox layout too.)
-    // The standard layout below is already label-ordered, so this only applies to SDL's mapping.
-    if (button_mapping.contains(Settings::NativeButton::A) &&
+    // sees as A is Switch A, B is B, etc. The standard layout below is already label-ordered, so
+    // this only applies to SDL's mapping.
+    //
+    // NOT for the Deck's built-in pad: Steam Input already hands it to us the Nintendo way round —
+    // pressing the button printed B is what arrives as SDL's SOUTH. Swapping again transposed the
+    // pair, and every reported symptom was that one bug wearing different clothes: B launched a
+    // game (it reached Accept), A on a game opened its options page instead (it reached Back), and A
+    // on the dock or the All Software tile did nothing at all (Back is a no-op there). External pads
+    // do not come through that path, which is why they were always fine.
+    const bool swap_face_labels = !DeviceIsSteamVirtualPad(device);
+    if (swap_face_labels && button_mapping.contains(Settings::NativeButton::A) &&
         button_mapping.contains(Settings::NativeButton::B)) {
         std::swap(button_mapping[Settings::NativeButton::A],
                   button_mapping[Settings::NativeButton::B]);
     }
-    if (button_mapping.contains(Settings::NativeButton::X) &&
+    if (swap_face_labels && button_mapping.contains(Settings::NativeButton::X) &&
         button_mapping.contains(Settings::NativeButton::Y)) {
         std::swap(button_mapping[Settings::NativeButton::X],
                   button_mapping[Settings::NativeButton::Y]);
@@ -321,7 +341,8 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
 
     // Log what the pad actually ended up bound to — the two params that decide whether the console
     // UI responds at all (A) and whether the stick is sane (LStick).
-    LOG_INFO(Input, "Steam Deck: mapped '{}' — A = [{}], LStick = [{}]", device.Get("display", "?"),
+    LOG_INFO(Input, "Steam Deck: mapped '{}' (face labels swapped: {}) — A = [{}], LStick = [{}]",
+             device.Get("display", "?"), swap_face_labels ? "yes" : "no",
              controller.GetButtonParam(Settings::NativeButton::A).Serialize(),
              controller.GetStickParam(Settings::NativeAnalog::LStick).Serialize());
 }
