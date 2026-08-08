@@ -1,9 +1,14 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <algorithm>
+#include <string>
+#include <utility>
 #include <QTimer>
 
 #include "common/logging.h"
+#include "common/param_package.h"
+#include "common/settings_input.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
 #include "hid_core/hid_types.h"
@@ -76,11 +81,28 @@ unsigned long long DeckNavigator::CollectButtons() const {
         Core::HID::NpadIdType::Player6,  Core::HID::NpadIdType::Player7,
         Core::HID::NpadIdType::Player8,
     };
+    // Count each PHYSICAL pad once. Two npads can be bound to the same device — Handheld and Player 1
+    // always are on a Deck — and if their mappings ever disagree, OR-ing them turns a single press
+    // into two different intents in one poll. That is not theoretical: a stale Handheld mapping with
+    // A and B transposed made every menu page open on Accept and close again on Back 1 ms later, so
+    // only the dock items that do not navigate appeared to work. Identity is the device a pad is
+    // bound to (guid + port), taken from a representative button.
+    std::array<std::pair<std::string, int>, npad_ids.size()> seen{};
+    std::size_t seen_count = 0;
     for (const auto npad_id : npad_ids) {
         auto* const controller = hid_core.GetEmulatedController(npad_id);
         if (controller == nullptr || !controller->IsConnected()) {
             continue;
         }
+        const auto param = controller->GetButtonParam(Settings::NativeButton::A);
+        const std::pair<std::string, int> device{param.Get("guid", ""), param.Get("port", -1)};
+        const bool duplicate =
+            !device.first.empty() &&
+            std::find(seen.begin(), seen.begin() + seen_count, device) != seen.begin() + seen_count;
+        if (duplicate) {
+            continue;
+        }
+        seen[seen_count++] = device;
         raw |= static_cast<unsigned long long>(controller->GetNpadButtons().raw);
     }
     return raw;
