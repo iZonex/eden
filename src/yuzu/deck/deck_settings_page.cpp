@@ -82,7 +82,11 @@ const std::vector<CategoryDef> kCategories = {
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Display"), PaneKind::Settings,
      {{false, Settings::Category::Renderer}, {false, Settings::Category::RendererAdvanced}},
      {"resolution_setup", "aspect_ratio", "scaling_filter", "anti_aliasing",
-      "fsr_sharpening_slider", "use_vsync", "fullscreen_mode"}},
+      "fsr_sharpening_slider", "use_vsync", "fullscreen_mode",
+      // The four knobs that actually matter when a game renders wrong. They are emulator tuning
+      // rather than console settings, but leaving them out meant a title with see-through textures
+      // could not be fixed from the console at all — the user had to edit the config by hand.
+      "gpu_accuracy", "use_reactive_flushing", "accelerate_astc", "astc_recompression"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Themes"), PaneKind::Theme, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Notifications"), PaneKind::Notifications, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Sleep Mode"), PaneKind::Sleep, {}, {}},
@@ -139,6 +143,18 @@ const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
           QObject::tr("Matches frames to the screen so the picture does not tear.")}},
         {"fullscreen_mode",
          {QObject::tr("Fullscreen Mode"), QObject::tr("How games fill the screen.")}},
+        {"gpu_accuracy",
+         {QObject::tr("Graphics Accuracy"),
+          QObject::tr("Higher is slower but fixes see-through or missing graphics.")}},
+        {"use_reactive_flushing",
+         {QObject::tr("Reactive Flushing"),
+          QObject::tr("Faster, but a few games show glitches with it on.")}},
+        {"accelerate_astc",
+         {QObject::tr("Texture Decoding"),
+          QObject::tr("Whether compressed textures are decoded on the graphics chip.")}},
+        {"astc_recompression",
+         {QObject::tr("Texture Compression"),
+          QObject::tr("Saves video memory at some cost to how textures look.")}},
 
         {"language_index",
          {QObject::tr("Console Language"),
