@@ -149,37 +149,54 @@ void DeckNavigator::Poll() {
     }
 
     // --- Face buttons and shoulders: single-shot on press. ---
+    // Each press is logged with the npad word it came from, so "I pressed A and the wrong thing
+    // happened" can be answered exactly: whether the physical button produced the bit we think it
+    // does, and which intent that bit turned into.
+    const auto fired = [raw](int bit, const char* intent) {
+        LOG_INFO(Input, "Deck menu: bit {} -> {} (npad raw {:#x})", bit, intent, raw);
+    };
+
     if (edge(BtnA)) {
+        fired(BtnA, "Accept");
         emit Accept();
     }
     if (!active) {
         return; // Accept may have booted a game and deactivated us
     }
     if (edge(BtnB)) {
+        fired(BtnB, "Back");
         emit Back();
     }
     if (edge(BtnX)) {
+        fired(BtnX, "PrimaryAction");
         emit PrimaryAction();
     }
     if (edge(BtnY)) {
+        fired(BtnY, "SecondaryAction");
         emit SecondaryAction();
     }
     if (edge(BtnL)) {
+        fired(BtnL, "TabPrev");
         emit TabPrev();
     }
     if (edge(BtnR)) {
+        fired(BtnR, "TabNext");
         emit TabNext();
     }
     if (edge(BtnZL)) {
+        fired(BtnZL, "PageUp");
         emit PageUp();
     }
     if (edge(BtnZR)) {
+        fired(BtnZR, "PageDown");
         emit PageDown();
     }
     if (edge(BtnPlus)) {
+        fired(BtnPlus, "StartPressed");
         emit StartPressed();
     }
     if (edge(BtnMinus)) {
+        fired(BtnMinus, "SelectPressed");
         emit SelectPressed();
     }
 }
