@@ -602,6 +602,29 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
         }
     }
 
+    // The Handheld npad is the same physical pad as Player 1, but it is NOT one of the player slots
+    // above — so it quietly kept whatever mapping an older build left in the config. That is enough
+    // to break the console UI: the menu ORs the button state of every connected controller, so a
+    // stale Handheld with A and B the other way round turns one press into BOTH bits in a single
+    // poll. The page opened on Accept and closed again on Back 1 ms later, which is why only the
+    // dock items that do not navigate — Sleep and Power — appeared to work at all.
+    //
+    // Keep it in lockstep with Player 1: same device, same mapping, and disconnected, since the Deck
+    // profile runs docked and a connected Handheld would only double every press.
+    if (auto* const handheld = hid_core.GetEmulatedController(Core::HID::NpadIdType::Handheld);
+        handheld != nullptr && !player_devices.empty()) {
+        const Common::ParamPackage& device = *player_devices.front();
+        if (devices_changed || !BindingMatchesDevice(*handheld, device)) {
+            ApplyDefaultMapping(input_subsystem, *handheld, device);
+            ++changed;
+            LOG_INFO(Input, "Steam Deck: Handheld re-mapped to match Player 1");
+        }
+        if (handheld->IsConnected()) {
+            handheld->Disconnect();
+            ++changed;
+        }
+    }
+
     return changed;
 }
 
