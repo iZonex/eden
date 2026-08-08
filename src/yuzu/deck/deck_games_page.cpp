@@ -41,6 +41,7 @@
 #include <QPixmap>
 #include "common/fs/fs_util.h"
 #include "common/fs/path_util.h"
+#include "common/logging.h"
 #include "common/string_util.h"
 #include "core/constants.h"
 #include "core/core.h"
@@ -946,6 +947,13 @@ bool DeckGamesPage::OnStart() {
 }
 
 bool DeckGamesPage::OnAccept() {
+    // The state A is actually judged against. If a press "goes somewhere else", the mismatch is
+    // between what the screen highlights and what these four values say.
+    LOG_INFO(Frontend,
+             "Deck home: Accept — zone {}, dock item {}, rail row {}, all-software tile {}",
+             zone == Zone::Avatar ? "Avatar" : zone == Zone::Dock ? "Dock" : "Rail",
+             dock != nullptr ? dock->Current() : -1, rail->currentIndex().row(),
+             rail->currentIndex().data(DeckAllSoftwareRole).toBool());
     if (zone == Zone::Avatar) {
         emit OpenUsers(active_uuid); // A on the avatar opens the active user's My Page
     } else if (zone == Zone::Dock) {
@@ -959,6 +967,7 @@ bool DeckGamesPage::OnAccept() {
 }
 
 void DeckGamesPage::ActivateDock() {
+    LOG_INFO(Frontend, "Deck home: dock item {} activated", dock->Current());
     switch (dock->Current()) {
     case DockBar::kAlbum:
         emit OpenAlbum();
