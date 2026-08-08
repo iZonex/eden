@@ -280,19 +280,20 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     // sees as A is Switch A, B is B, etc. The standard layout below is already label-ordered, so
     // this only applies to SDL's mapping.
     //
-    // NOT for the Deck's built-in pad: Steam Input already hands it to us the Nintendo way round —
-    // pressing the button printed B is what arrives as SDL's SOUTH. Swapping again transposed the
-    // pair, and every reported symptom was that one bug wearing different clothes: B launched a
-    // game (it reached Accept), A on a game opened its options page instead (it reached Back), and A
-    // on the dock or the All Software tile did nothing at all (Back is a no-op there). External pads
-    // do not come through that path, which is why they were always fine.
-    const bool swap_face_labels = !DeviceIsSteamVirtualPad(device);
-    if (swap_face_labels && button_mapping.contains(Settings::NativeButton::A) &&
+    // The two pairs need different treatment on the Deck, which took a while to pin down. Measured
+    // on the hardware: the kernel exposes the built-in pad's face buttons as BTN_SOUTH, BTN_EAST,
+    // BTN_NORTH, BTN_WEST — raw indices 0..3 in that order, so raw 2 is the TOP button (printed Y)
+    // and raw 3 the LEFT one (printed X). But SDL's own entry for this pad resolves NORTH to raw 3
+    // and WEST to raw 2: it already has that pair crossed. So X/Y arrive label-correct with no swap
+    // of ours, while A/B still need one — and swapping both, as we did, simply moved the fault from
+    // one pair to the other.
+    const bool swap_north_west = !DeviceIsSteamVirtualPad(device);
+    if (button_mapping.contains(Settings::NativeButton::A) &&
         button_mapping.contains(Settings::NativeButton::B)) {
         std::swap(button_mapping[Settings::NativeButton::A],
                   button_mapping[Settings::NativeButton::B]);
     }
-    if (swap_face_labels && button_mapping.contains(Settings::NativeButton::X) &&
+    if (swap_north_west && button_mapping.contains(Settings::NativeButton::X) &&
         button_mapping.contains(Settings::NativeButton::Y)) {
         std::swap(button_mapping[Settings::NativeButton::X],
                   button_mapping[Settings::NativeButton::Y]);
@@ -339,11 +340,16 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     controller.DisableConfiguration();
     controller.SaveCurrentConfig();
 
-    // Log what the pad actually ended up bound to — the two params that decide whether the console
-    // UI responds at all (A) and whether the stick is sane (LStick).
-    LOG_INFO(Input, "Steam Deck: mapped '{}' (face labels swapped: {}) — A = [{}], LStick = [{}]",
-             device.Get("display", "?"), swap_face_labels ? "yes" : "no",
+    // Log every face button, not just A: the two pairs are corrected independently now, so a report
+    // of "the wrong thing happened" has to be checkable against all four at once.
+    LOG_INFO(Input,
+             "Steam Deck: mapped '{}' (A/B swapped: yes, X/Y swapped: {}) — A=[{}] B=[{}] X=[{}] "
+             "Y=[{}] LStick=[{}]",
+             device.Get("display", "?"), swap_north_west ? "yes" : "no",
              controller.GetButtonParam(Settings::NativeButton::A).Serialize(),
+             controller.GetButtonParam(Settings::NativeButton::B).Serialize(),
+             controller.GetButtonParam(Settings::NativeButton::X).Serialize(),
+             controller.GetButtonParam(Settings::NativeButton::Y).Serialize(),
              controller.GetStickParam(Settings::NativeAnalog::LStick).Serialize());
 }
 
