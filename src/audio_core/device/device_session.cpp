@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "audio_core/audio_core.h"
+#include "common/logging.h"
 #include "audio_core/audio_manager.h"
 #include "audio_core/device/audio_buffer.h"
 #include "audio_core/device/device_session.h"
@@ -56,6 +57,11 @@ Result DeviceSession::Initialize(std::string_view name_, SampleFormat sample_for
 }
 
 void DeviceSession::Finalize() {
+    // Paired with the sink's "Opening SDL stream" line. Only opens were ever logged, so a session
+    // that is never finalised — every one of which pins a sink stream AND a kernel event — looked
+    // exactly like a session that was. Counting both sides is what turns "audio streams keep
+    // appearing" into a provable leak.
+    LOG_INFO(Audio, "Finalizing device session {} (type {})", session_id, static_cast<int>(type));
     if (initialized) {
         Stop();
         sink->CloseStream(stream);
