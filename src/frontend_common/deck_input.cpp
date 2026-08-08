@@ -609,8 +609,11 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
     // poll. The page opened on Accept and closed again on Back 1 ms later, which is why only the
     // dock items that do not navigate — Sleep and Power — appeared to work at all.
     //
-    // Keep it in lockstep with Player 1: same device, same mapping, and disconnected, since the Deck
-    // profile runs docked and a connected Handheld would only double every press.
+    // Keep its MAPPING in lockstep with Player 1 — and nothing else. Its connection state belongs to
+    // the controller applet, which hands Handheld the pad for games that only accept handheld play
+    // and disconnects it otherwise. Disconnecting it from here as well, twice a second, would tear
+    // that down half a second after the applet set it up: the game loses its controller, asks for
+    // the applet again, and the two sides fight forever.
     if (auto* const handheld = hid_core.GetEmulatedController(Core::HID::NpadIdType::Handheld);
         handheld != nullptr && !player_devices.empty()) {
         const Common::ParamPackage& device = *player_devices.front();
@@ -618,10 +621,6 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
             ApplyDefaultMapping(input_subsystem, *handheld, device);
             ++changed;
             LOG_INFO(Input, "Steam Deck: Handheld re-mapped to match Player 1");
-        }
-        if (handheld->IsConnected()) {
-            handheld->Disconnect();
-            ++changed;
         }
     }
 
