@@ -728,6 +728,11 @@ bool ApplySteamDeckDefaultsOnce() {
     // Graphics — Vulkan is the only good backend on RADV; native 1x (Switch handheld resolution) with
     // FSR upscaling; async GPU + async shaders + disk/pipeline caches hide compilation stutter.
     //
+    // Nor asynchronous shaders. Eden defaults them off and files them under RendererHacks, which is
+    // exactly what they are: a pipeline that has not finished compiling is not drawn at all, so
+    // geometry silently goes missing until it is ready. That is the see-through walls in Dark Souls
+    // Remastered — not stutter, but objects skipped outright. A console compiles and then draws; the
+    // disk and driver pipeline caches this profile enables are the honest way to make that quick.
     // Deliberately NOT touching graphics accuracy. Eden defaults it to High, and this profile used to
     // force it down to Low for frame rate — which is how Dark Souls Remastered ended up rendering
     // see-through walls. A console does not ask its owner to trade correctness for speed, and it does
@@ -742,7 +747,6 @@ bool ApplySteamDeckDefaultsOnce() {
     Settings::values.vram_usage_mode.SetValue(Settings::VramUsageMode::Conservative);
     Settings::values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Gpu);
     Settings::values.use_asynchronous_gpu_emulation.SetValue(true);
-    Settings::values.use_asynchronous_shaders.SetValue(true);
     Settings::values.use_disk_shader_cache.SetValue(true);
     Settings::values.use_vulkan_driver_pipeline_cache.SetValue(true);
     Settings::values.use_reactive_flushing.SetValue(true);
