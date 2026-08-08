@@ -119,11 +119,13 @@ Common::ParamPackage RawStick(const Common::ParamPackage& device, int axis_x, in
     return param;
 }
 
-/// The standard layout of a modern gamepad as the Linux kernel enumerates it (BTN_SOUTH, BTN_EAST,
-/// BTN_WEST, BTN_NORTH, shoulders, Select, Start, Guide, stick clicks; D-pad on hat 0; triggers on
-/// axes 4/5; sticks on axes 0/1 and 2/3). The Deck's built-in controls follow it, as does every
-/// Xbox-style pad. Used when SDL hands us no bindings of its own, in place of the upstream fallback
-/// that puts L/R on the stick clicks and the D-pad on buttons that do not exist.
+/// The standard layout of a modern gamepad as the Linux kernel enumerates it: BTN_SOUTH, BTN_EAST,
+/// BTN_WEST, BTN_NORTH, shoulders, Select, Start, Guide, stick clicks; D-pad on hat 0; and the axes
+/// in ABS order — X, Y, Z(=left trigger), RX, RY, RZ(=right trigger), so the RIGHT STICK sits on
+/// axes 3/4 and the triggers on 2 and 5, not the SDL gamepad-axis numbering. (Confirmed against what
+/// the SDL driver itself writes for the Deck's pad: `axis_x:3, axis_y:4` for the right stick.) Used
+/// when SDL hands us no bindings of its own, in place of the upstream fallback that puts L/R on the
+/// stick clicks and the D-pad on buttons that do not exist.
 ///
 /// Mapped by PRINTED label (physical south = "A"), matching the swap applied to recognised pads
 /// below, so the button the user sees as A is Switch A on every controller.
@@ -152,8 +154,8 @@ InputCommon::ButtonMapping StandardRawButtonMapping(const Common::ParamPackage& 
     mapping.insert_or_assign(Btn::Plus, RawButton(device, 7));   // Start / Menu
     mapping.insert_or_assign(Btn::LStick, RawButton(device, 9));
     mapping.insert_or_assign(Btn::RStick, RawButton(device, 10));
-    mapping.insert_or_assign(Btn::ZL, RawTrigger(device, 4));
-    mapping.insert_or_assign(Btn::ZR, RawTrigger(device, 5));
+    mapping.insert_or_assign(Btn::ZL, RawTrigger(device, 2)); // ABS_Z
+    mapping.insert_or_assign(Btn::ZR, RawTrigger(device, 5)); // ABS_RZ
     mapping.insert_or_assign(Btn::DUp, RawHat(device, "up"));
     mapping.insert_or_assign(Btn::DDown, RawHat(device, "down"));
     mapping.insert_or_assign(Btn::DLeft, RawHat(device, "left"));
@@ -296,7 +298,7 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     auto stick_mapping = input_subsystem.GetAnalogMappingForDevice(device);
     if (stick_mapping.empty()) {
         stick_mapping.insert_or_assign(Settings::NativeAnalog::LStick, RawStick(device, 0, 1));
-        stick_mapping.insert_or_assign(Settings::NativeAnalog::RStick, RawStick(device, 2, 3));
+        stick_mapping.insert_or_assign(Settings::NativeAnalog::RStick, RawStick(device, 3, 4));
     }
     for (auto& [index, param] : stick_mapping) {
         // Never keep a captured stick centre. The SDL driver reads the LIVE axis value at the moment
@@ -467,22 +469,6 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
     }
     constexpr std::size_t max_players = 8;
 
-    // One-time re-map after an input fix. A config written by an earlier build can hold a mapping
-    // this one considers broken — the built-in pad bound through SDL's enum-index fallback, or a
-    // stick left pointing at the axes of a pad that is long gone. It still matches by guid+port, so
-    // nothing below would ever replace it and the user would stay broken after updating. Force
-    // exactly one full re-map, recorded by a marker file so it never fights their own tuning again.
-    static bool force_remap = [] {
-        const auto marker =
-            Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_input_mapping_v3";
-        if (Common::FS::Exists(marker)) {
-            return false;
-        }
-        std::ofstream marker_file{marker};
-        marker_file << "1\n";
-        LOG_INFO(Input, "Steam Deck: input profile v3 — re-mapping every controller once");
-        return true;
-    }();
 
     // Auto-detect model: controllers connect by themselves. Input flows through Steam's gamepad
     // emulation into SDL (we keep Steam Input read-only and never activate the action API, which
@@ -506,7 +492,18 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
     // present devices changes, so a re-plug always gets a fresh try.
     static std::unordered_set<std::string> unmappable;
 
-    if (signature != last_present_signature) {
+    // Any change to the set of present devices re-maps every player, rather than trusting the
+    // binding already in the config. On the Deck guid+port is NOT a stable identity: Steam re-exposes
+    // the one built-in pad under different faces — "Steam Deck Controller" on port 0 and "Xbox One
+    // Controller" on port 1, same guid — and each face has its own raw button order. A config written
+    // under one face still matches the other by guid, so the old check kept a mapping whose buttons
+    // had quietly moved: A pressed nothing, while Plus/Minus happened to still line up (which is why
+    // the in-game exit gesture kept working while the menu looked dead). This also covers the very
+    // first tick after launch, where the signature changes from empty and everything is re-mapped
+    // against whatever face SDL is showing right now. Re-mapping is cheap and idempotent now that no
+    // stick centre is captured, so preferring it over a stale binding costs nothing.
+    const bool devices_changed = signature != last_present_signature;
+    if (devices_changed) {
         last_present_signature = signature;
         unmappable.clear();
         LOG_INFO(Input, "Steam Deck: {} controller(s) present: {}", present.size(),
@@ -544,7 +541,7 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
             if (unmappable.count(device_key) != 0) {
                 continue; // already tried and it did not stick; do not loop on it
             }
-            if (force_remap || !BindingMatchesDevice(*controller, device)) {
+            if (devices_changed || !BindingMatchesDevice(*controller, device)) {
                 // A genuinely new/different device (or a port renumber) — do the full default mapping.
                 AssignDevice(input_subsystem, *controller, device);
                 ++changed;
@@ -578,11 +575,6 @@ int ReconcileSteamDeckControllers(InputCommon::InputSubsystem& input_subsystem,
         }
     }
 
-    // Spend the one-time re-map only once a pad was actually there to re-map — the first ticks can
-    // land before SDL has finished enumerating, and a forced pass over an empty list helps nobody.
-    if (force_remap && !player_devices.empty()) {
-        force_remap = false;
-    }
     return changed;
 }
 
