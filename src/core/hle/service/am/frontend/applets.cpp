@@ -28,6 +28,7 @@
 #include "core/hle/service/am/frontend/applet_software_keyboard.h"
 #include "core/hle/service/am/frontend/applet_web_browser.h"
 #include "core/hle/service/am/frontend/applets.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/am/service/storage.h"
 #include "core/hle/service/sm/sm.h"
 
@@ -73,9 +74,21 @@ void FrontendApplet::PushInteractiveOutData(std::shared_ptr<IStorage> storage) {
 void FrontendApplet::Exit() {
     auto applet_ = applet.lock();
 
-    std::scoped_lock lk{applet_->lock};
-    applet_->is_completed = true;
-    applet_->state_changed_event.Signal(system.Kernel());
+    {
+        std::scoped_lock lk{applet_->lock};
+        applet_->is_completed = true;
+        applet_->state_changed_event.Signal(system.Kernel());
+    }
+
+    // Wake the window system so this applet is actually pruned. Marking it completed is only half
+    // the job: the prune runs inside WindowSystem::Update(), which only runs when the event observer
+    // is woken, and a frontend applet has no process whose termination would wake it. Left alone it
+    // stays in its caller's child list holding the ~19 kernel events it owns — so a game that
+    // re-opens one in a loop exhausts the event pool and hangs, with CreateEvent failing outright.
+    // The signal is lock-free, and the applet lock above is released first either way.
+    if (auto* const window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestUpdate();
+    }
 }
 
 FrontendAppletSet::FrontendAppletSet() = default;
