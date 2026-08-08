@@ -44,6 +44,15 @@ void DeckNavigator::SetActive(bool active_) {
         for (int i = 0; i < NumTrackedButtons; ++i) {
             pressed[i] = (raw & (1ULL << i)) != 0;
         }
+        // Anything already down here can never fire until it is released first — which is exactly
+        // how a *stuck* bit (a button bound to something that reads as permanently pressed) kills
+        // one menu action while leaving the pad perfectly usable in game, where the same bit is only
+        // ever read as a level. Worth a line in the log, because it is otherwise invisible.
+        if (raw != 0) {
+            LOG_WARNING(Input, "Deck menu: buttons already down at activation (npad raw {:#x}) — "
+                               "they stay inert until released",
+                        raw);
+        }
         held_dir = 0;
         ticks_held = 0;
         timer->start();
