@@ -857,6 +857,24 @@ void MainWindow::ControllerSelectorAutoConfigure(
             }
         }
     }
+
+    // Snapshot what the game is actually being shown. A title that keeps re-opening the applet is
+    // rejecting this state, and without it in the log there is nothing to compare against its
+    // request — the parameters line above says what it asked for, this says what it got.
+    std::string state;
+    const auto describe = [&](const char* name, NpadIdType id) {
+        const auto* const c = hid_core.GetEmulatedController(id);
+        if (c == nullptr) {
+            return;
+        }
+        state += fmt::format("{}={}/{} ", name, c->IsConnected() ? "on" : "off",
+                             static_cast<int>(c->GetNpadStyleIndex()));
+    };
+    describe("handheld", NpadIdType::Handheld);
+    describe("p1", NpadIdType::Player1);
+    describe("p2", NpadIdType::Player2);
+    LOG_INFO(Frontend, "Deck controller applet (headless): presenting {}docked={}", state,
+             Settings::IsDockedMode());
 }
 
 void MainWindow::ControllerSelectorRequestExit() {
