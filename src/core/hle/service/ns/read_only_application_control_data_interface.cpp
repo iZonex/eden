@@ -195,7 +195,10 @@ Result IReadOnlyApplicationControlDataInterface::GetApplicationControlData(
 
 Result IReadOnlyApplicationControlDataInterface::GetApplicationDesiredLanguage(
     Out<ApplicationLanguage> out_desired_language, u32 supported_languages) {
-    LOG_INFO(Service_NS, "called with supported_languages={:08X}", supported_languages);
+    // Debug, not Info: titles poll this from their main loop — one measured run made 109,777 calls
+    // in five minutes, roughly 360 a second. At Info that is 10 MB of log and a disk write on every
+    // one of them, which is felt as a stutter in game and buries everything else in the log.
+    LOG_DEBUG(Service_NS, "called with supported_languages={:08X}", supported_languages);
 
     // Get language code from settings
     const auto language_code =
