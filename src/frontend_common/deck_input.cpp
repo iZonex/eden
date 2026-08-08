@@ -637,6 +637,18 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
     constexpr int hold_threshold = 2;
     static int hold_ticks = 0;
 
+    // Refuse to fire again for a few seconds after each suspend. Releasing the pair and re-holding
+    // it re-arms the gesture within one tick, and the suspended title stays powered on — so the
+    // poll keeps running and a second hold lands on top of a suspend that has not finished. That is
+    // how it fired three times in ten seconds and looked like a freeze. The delay is long enough to
+    // cover the suspend and far shorter than any deliberate second use.
+    constexpr int cooldown_ticks = 8; // ~4 s
+    static int cooldown = 0;
+    if (cooldown > 0) {
+        --cooldown;
+        return false;
+    }
+
     // Exit gesture: Minus+Plus (Select+Start) held together — present on Xbox pads, the Deck's
     // built-in controls and Switch pads alike. A held Home button also works where present.
     // (NpadButton: plus=bit 10, minus=bit 11.)
@@ -682,6 +694,7 @@ bool ShouldExitGameOnHotkeyHold(Core::HID::HIDCore& hid_core) {
     }
     if (++hold_ticks >= hold_threshold) {
         hold_ticks = -1;
+        cooldown = cooldown_ticks;
         LOG_INFO(Input, "Steam Deck: HOME gesture (Select+Start) held — suspending to menu");
         return true;
     }
