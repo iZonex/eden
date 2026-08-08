@@ -298,7 +298,16 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
         stick_mapping.insert_or_assign(Settings::NativeAnalog::LStick, RawStick(device, 0, 1));
         stick_mapping.insert_or_assign(Settings::NativeAnalog::RStick, RawStick(device, 2, 3));
     }
-    for (const auto& [index, param] : stick_mapping) {
+    for (auto& [index, param] : stick_mapping) {
+        // Never keep a captured stick centre. The SDL driver reads the LIVE axis value at the moment
+        // of mapping and bakes it in as the neutral point — and a re-map fires whenever a pad's port
+        // renumbers, which on the Deck means every time another controller is plugged in or pulled
+        // out, quite possibly mid-game with a thumb on the stick. Anything below the driver's 0.2
+        // guard then becomes permanent drift, and every further re-map bakes a fresh one on top.
+        // A working pad reports a centred stick, and the 0.15 deadzone covers what is left; a
+        // guessed offset can only make that worse.
+        param.Set("offset_x", 0.0f);
+        param.Set("offset_y", 0.0f);
         controller.SetStickParam(index, param);
     }
 
