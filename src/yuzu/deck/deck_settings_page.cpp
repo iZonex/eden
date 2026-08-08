@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <QComboBox>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -91,6 +92,74 @@ const std::vector<CategoryDef> kCategories = {
       "custom_rtc_enabled", "custom_rtc"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "About the Console"), PaneKind::About, {}, {}},
 };
+
+/// Console-side wording for the settings this screen shows.
+///
+/// Upstream's translation map is built for the desktop configuration dialogs, so a setting that
+/// never appears there has no entry — and the row then falls back to printing its raw ini key
+/// ("airplane_mode", "vibration_enabled"). Every key the console screen can show is listed here in
+/// the Switch's own phrasing, with the one-line explanation that sits under it.
+///
+/// Consulted ONLY when upstream has nothing for that setting, so an already-translated label is
+/// never replaced by the English text here.
+const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
+    static const std::map<std::string, std::pair<QString, QString>> kText = {
+        {"airplane_mode",
+         {QObject::tr("Airplane Mode"), QObject::tr("Turns off wireless communication.")}},
+
+        {"vibration_enabled",
+         {QObject::tr("Vibration"), QObject::tr("Lets games vibrate the controller.")}},
+        {"enable_accurate_vibrations",
+         {QObject::tr("Accurate Vibration"),
+          QObject::tr("Reproduces vibration exactly as a game asks for it, which can feel weaker.")}},
+        {"motion_enabled",
+         {QObject::tr("Motion Controls"),
+          QObject::tr("Lets games read the controller's movement and tilt.")}},
+
+        {"volume", {QObject::tr("Volume"), QObject::tr("Overall sound level.")}},
+        {"sound_index",
+         {QObject::tr("Sound Output"), QObject::tr("Mono, stereo or surround sound.")}},
+        {"output_device",
+         {QObject::tr("Output Device"), QObject::tr("Where sound is played.")}},
+        {"audio_muted", {QObject::tr("Mute"), QObject::tr("Silences all sound.")}},
+
+        {"resolution_setup",
+         {QObject::tr("Resolution"),
+          QObject::tr("How sharply games are rendered. Higher looks better but runs slower.")}},
+        {"aspect_ratio", {QObject::tr("Aspect Ratio"), QObject::tr("Shape of the picture.")}},
+        {"scaling_filter",
+         {QObject::tr("Scaling Filter"), QObject::tr("How the picture is scaled to the screen.")}},
+        {"anti_aliasing",
+         {QObject::tr("Anti-Aliasing"), QObject::tr("Smooths jagged edges.")}},
+        {"fsr_sharpening_slider",
+         {QObject::tr("FSR Sharpness"),
+          QObject::tr("How much detail FSR restores when it scales the picture up.")}},
+        {"use_vsync",
+         {QObject::tr("Vertical Sync"),
+          QObject::tr("Matches frames to the screen so the picture does not tear.")}},
+        {"fullscreen_mode",
+         {QObject::tr("Fullscreen Mode"), QObject::tr("How games fill the screen.")}},
+
+        {"language_index",
+         {QObject::tr("Console Language"),
+          QObject::tr("The language games see the console using.")}},
+        {"region_index",
+         {QObject::tr("Region"), QObject::tr("The region games see the console set to.")}},
+        {"time_zone_index",
+         {QObject::tr("Time Zone"), QObject::tr("The time zone games see the console set to.")}},
+        {"use_docked_mode",
+         {QObject::tr("Console Mode"),
+          QObject::tr("Docked renders at TV resolution; handheld matches the Switch's own screen.")}},
+        {"custom_rtc_enabled",
+         {QObject::tr("Custom Clock"),
+          QObject::tr("Runs the console on a date and time you choose.")}},
+        {"custom_rtc",
+         {QObject::tr("Console Date and Time"),
+          QObject::tr("The date and time used while the custom clock is on.")}},
+    };
+    const auto it = kText.find(key);
+    return it == kText.end() ? nullptr : &it->second;
+}
 
 bool IsRuntimeList(const Settings::BasicSetting* setting) {
     return (setting->Specialization() & Settings::SpecializationTypeMask) ==
@@ -546,8 +615,20 @@ void DeckSettingsPage::Build(Core::System& system) {
                     label = t->second.first;
                     description = t->second.second; // the setting's tooltip = its explanation
                 }
+                if (const auto* text = ConsoleSettingText(setting->GetLabel())) {
+                    if (label.isEmpty()) {
+                        label = text->first;
+                    }
+                    if (description.isEmpty()) {
+                        description = text->second;
+                    }
+                }
                 if (label.isEmpty()) {
+                    // Nothing anywhere knows this setting — show the raw key rather than an empty
+                    // row, so it is at least identifiable and obviously missing a name.
                     label = QString::fromStdString(setting->GetLabel());
+                    LOG_WARNING(Frontend, "Deck settings: no name for setting '{}'",
+                                setting->GetLabel());
                 }
                 auto* row = new DeckSettingRow(widget, label, description, rows_host);
                 row->on_tapped = [this, row] { OnRowTapped(row); };
