@@ -572,6 +572,7 @@ void DeckSettingsPage::Build(Core::System& system) {
         scroll->setWidget(rows_host);
         page_layout->addWidget(scroll, 1);
 
+        const std::size_t category_apply_mark = apply_funcs.size();
         for (const auto& [is_ui, category] : def.sources) {
             auto& linkage = is_ui ? UISettings::values.linkage : Settings::values.linkage;
             const auto it = linkage.by_category.find(category);
@@ -638,8 +639,12 @@ void DeckSettingsPage::Build(Core::System& system) {
         }
         rows_layout->addStretch();
 
-        // Skip categories that ended up with no visible rows.
+        // Skip categories that ended up with no visible rows. Dropping the page destroys every
+        // widget under it, so the apply functions captured from them have to go as well — the same
+        // rule the per-widget drops above already follow. Leaving them behind means Apply() later
+        // calls a serializer belonging to a deleted widget, which is a straight segfault.
         if (cat.rows.empty()) {
+            apply_funcs.resize(category_apply_mark);
             page->deleteLater();
             continue;
         }
