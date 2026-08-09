@@ -285,14 +285,12 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
                         (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
                 if (aliases_color_rt) {
                     // A different view onto an image that is also a colour attachment is a real
-                    // feedback loop -- the exact-same-view case above is the legal one and was
-                    // already let through. Only the depth case below asked for a barrier, so
-                    // validation flags the colour one every frame: a storage image write landing
-                    // on framebuffer attachment 0.
-                    if (Settings::values.dev_fix_color_feedback_loop.GetValue()) {
-                        return true;
-                    }
-                    continue;
+                    // feedback loop: the shader reads a frame that is still being drawn. Only the
+                    // depth case below used to ask for a barrier and the colour one fell through
+                    // this branch, which is what made Dark Souls put its decals in mid-air and
+                    // show rooms through walls on the Deck. The exact-same-view case handled
+                    // further up is the legal one and still passes.
+                    return true;
                 }
             }
             if (depth_active && view_image_id == rt_depth_image_id) {
