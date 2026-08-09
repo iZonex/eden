@@ -47,6 +47,9 @@ struct Profile {
     bool support_shared_int64_atomics{};
     bool support_derivative_control{};
     bool support_geometry_shader_passthrough{};
+    /// Whether the Geometry capability may be declared at all. PrimitiveId in a fragment shader
+    /// needs it, and a device without geometry shaders cannot accept it.
+    bool support_geometry_shader{};
     bool support_native_ndc{};
     bool support_gl_nv_gpu_shader_5{};
     bool support_gl_amd_gpu_shader_half_float{};

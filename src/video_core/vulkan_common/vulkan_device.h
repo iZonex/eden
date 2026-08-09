@@ -411,6 +411,12 @@ FN_MAX_LIMIT_LIST
         return features.features.shaderFloat64;
     }
 
+    /// Returns true if the device can run geometry shaders. Listed as mandatory, but a Mac gets
+    /// past that check with a warning, so the shader backend still has to ask.
+    bool IsGeometryShaderSupported() const {
+        return features.features.geometryShader;
+    }
+
     /// Returns true if the device supports float16 natively.
     bool IsFloat16Supported() const {
         return features.shader_float16_int8.shaderFloat16;

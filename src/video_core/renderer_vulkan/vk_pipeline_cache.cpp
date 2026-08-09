@@ -428,6 +428,7 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .support_shared_int64_atomics = device.IsSharedInt64AtomicsSupported(),
         .support_derivative_control = true,
         .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),
+        .support_geometry_shader = device.IsGeometryShaderSupported(),
         // Whether the driver converts the depth range itself or the shader has to. RADV supports the
         // extension and a Mac does not, so the two machines compute depth by different routes — and
         // depth is what screen-space effects read to place themselves. Overridable to put the Deck
