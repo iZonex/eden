@@ -240,7 +240,26 @@ namespace Vulkan {
         VkImage handle{};
         VmaAllocation allocation{};
         VmaAllocationInfo alloc_info{};
-        vk::Check(vmaCreateImage(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));
+        VkResult result =
+            vmaCreateImage(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info);
+        if (result != VK_SUCCESS) {
+            // Refusing to exceed the reported budget is a good default on a card with its own
+            // memory. On a handheld it is not: "device local" and "host" are the same physical RAM,
+            // and the budget is a figure derived from a BIOS carve-out rather than a real ceiling.
+            // Turning that into a thrown exception kills the emulator exactly when it is busiest —
+            // a first boot, compiling shaders and creating textures at once — and the half-written
+            // shader cache it leaves behind is what makes the next run render with pieces missing.
+            // Try again without the budget restriction before giving up.
+            VmaAllocationCreateInfo relaxed_ci = alloc_ci;
+            relaxed_ci.flags &= ~static_cast<VmaAllocationCreateFlags>(
+                VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT);
+            result = vmaCreateImage(allocator, &ci, &relaxed_ci, &handle, &allocation, &alloc_info);
+            if (result == VK_SUCCESS) {
+                LOG_WARNING(Render_Vulkan,
+                            "Image allocation exceeded the memory budget; allocated anyway");
+            }
+        }
+        vk::Check(result);
 
         // Log GPU memory allocation for images
         if (GPU::Logging::IsActive() &&
@@ -277,7 +296,21 @@ namespace Vulkan {
         VmaAllocation allocation{};
         VkMemoryPropertyFlags property_flags{};
 
-        vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));
+        VkResult result =
+            vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info);
+        if (result != VK_SUCCESS) {
+            // Same reasoning as CreateImage: the budget is advisory on shared memory, and a hard
+            // failure here is far more damaging than an over-budget allocation.
+            VmaAllocationCreateInfo relaxed_ci = alloc_ci;
+            relaxed_ci.flags &= ~static_cast<VmaAllocationCreateFlags>(
+                VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT);
+            result = vmaCreateBuffer(allocator, &ci, &relaxed_ci, &handle, &allocation, &alloc_info);
+            if (result == VK_SUCCESS) {
+                LOG_WARNING(Render_Vulkan,
+                            "Buffer allocation exceeded the memory budget; allocated anyway");
+            }
+        }
+        vk::Check(result);
         vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);
 
         // Log GPU memory allocation for buffers
