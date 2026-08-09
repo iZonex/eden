@@ -736,6 +736,15 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         descriptor_indexing.runtimeDescriptorArray = false;
     }
 
+    // Same idea for stencil export. It decides whether a depth resolve also carries stencil, and it
+    // is one of the few rendering paths that runs on the Deck's RADV but not on MoltenVK — where the
+    // very same build renders the very same scene correctly. Turning it off here puts both on the
+    // same path, which is the whole point of having two machines to compare.
+    if (extensions.shader_stencil_export && std::getenv("EDEN_NO_STENCIL_EXPORT") != nullptr) {
+        LOG_WARNING(Render_Vulkan, "EDEN_NO_STENCIL_EXPORT set — disabling shader stencil export.");
+        extensions.shader_stencil_export = false;
+    }
+
     // Escape hatch for the descriptor-buffer path. It is new, it is the one thing that decides which
     // texture a draw actually samples, and "an opaque surface came out fully transparent" is exactly
     // what sampling the wrong or an empty descriptor looks like. Setting EDEN_NO_DESCRIPTOR_BUFFER=1
