@@ -1306,7 +1306,13 @@ void RasterizerVulkan::UpdateDepthBias(Tegra::Engines::Maxwell3D::Regs& regs) {
 
     scheduler.Record([constant = units, clamp = regs.depth_bias_clamp,
                       factor = regs.slope_scale_depth_bias, this](vk::CommandBuffer cmdbuf) {
-        if (device.IsExtDepthBiasControlSupported()) {
+        // The FORCE_UNORM representation reinterprets the bias for an integer depth buffer — but
+        // this title renders depth as D32_FLOAT. Scaling a float depth's bias as though it were
+        // UNORM moves decals by the wrong amount, which is what "the moss hangs in the air instead
+        // of lying on the wall" looks like. RADV takes this path and MoltenVK does not, which is
+        // also where the two machines part company.
+        if (device.IsExtDepthBiasControlSupported() &&
+            !Settings::values.dev_disable_depth_bias_control.GetValue()) {
             static VkDepthBiasRepresentationInfoEXT bias_info{
                 .sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT,
                 .pNext = nullptr,
