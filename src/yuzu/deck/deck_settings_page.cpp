@@ -98,7 +98,7 @@ const std::vector<CategoryDef> kCategories = {
      {{false, Settings::Category::RendererDebug}},
      {"dev_force_demote_reorder", "dev_disable_gather_subpixel", "dev_disable_descriptor_buffer",
       "dev_disable_stencil_export", "dev_disable_native_astc",
-      "dev_disable_depth_clip_control"}},
+      "dev_disable_depth_clip_control", "dev_disable_depth_bias_control"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "About the Console"), PaneKind::About, {}, {}},
 };
 
@@ -162,6 +162,9 @@ const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
         {"dev_disable_stencil_export",
          {QObject::tr("No stencil export"),
           QObject::tr("Resolves depth without stencil, as GPUs lacking the feature do.")}},
+        {"dev_disable_depth_bias_control",
+         {QObject::tr("No depth bias control"),
+          QObject::tr("Applies depth bias the plain way, as GPUs lacking the feature do.")}},
         {"dev_disable_depth_clip_control",
          {QObject::tr("No depth clip control"),
           QObject::tr("Computes the depth range in the shader, as GPUs lacking the feature do.")}},
