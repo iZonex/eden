@@ -709,7 +709,7 @@ bool ApplySteamDeckDefaultsOnce() {
     // records that it ran, so the user's later tuning is preserved. Bump the suffix whenever the
     // optimal profile below changes, so it re-applies exactly once on existing installs.
     const auto marker =
-        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v3";
+        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v2";
     if (Common::FS::Exists(marker)) {
         return false;
     }
@@ -727,18 +727,12 @@ bool ApplySteamDeckDefaultsOnce() {
 
     // Graphics — Vulkan is the only good backend on RADV; native 1x (Switch handheld resolution) with
     // FSR upscaling; async GPU + async shaders + disk/pipeline caches hide compilation stutter.
-    //
-    // Deliberately NOT touching graphics accuracy. Eden defaults it to High, and this profile used to
-    // force it down to Low for frame rate — which is how Dark Souls Remastered ended up rendering
-    // see-through walls. A console does not ask its owner to trade correctness for speed, and it does
-    // not render wrong; speed here comes from the native 1x resolution and FSR above, which cost
-    // sharpness rather than correctness. A title that genuinely needs a lower setting belongs in the
-    // per-game override table, not in everyone's defaults.
     Settings::values.renderer_backend.SetValue(Settings::RendererBackend::Vulkan);
     Settings::values.resolution_setup.SetValue(Settings::ResolutionSetup::Res1X);
     Settings::values.scaling_filter.SetValue(Settings::ScalingFilter::Fsr);
     Settings::values.vsync_mode.SetValue(Settings::VSyncMode::Fifo);
     Settings::values.aspect_ratio.SetValue(Settings::AspectRatio::R16_9);
+    Settings::values.gpu_accuracy.SetValue(Settings::GpuAccuracy::Low);
     Settings::values.vram_usage_mode.SetValue(Settings::VramUsageMode::Conservative);
     Settings::values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Gpu);
     Settings::values.use_asynchronous_gpu_emulation.SetValue(true);
