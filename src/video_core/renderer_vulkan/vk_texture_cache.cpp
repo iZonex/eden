@@ -1805,6 +1805,14 @@ Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu
         original_image.SetObjectNameEXT(VideoCommon::Name(*this).c_str());
     }
     current_image = &Image::original_image;
+    // A fresh VkImage is in VK_IMAGE_LAYOUT_UNDEFINED, and the rest of this cache assumes every
+    // image sits in GENERAL. Uploading gets an image there as a side effect, so the ones that fall
+    // through the gap are exactly those nothing uploads: depth buffers and other render targets.
+    // Sampling one of those was reading an image whose layout says its contents are undefined --
+    // on AMD that includes the depth metadata the hardware tests against, which is why geometry
+    // showed through walls on the Deck and never on the Mac, where no such metadata exists.
+    // TransitionImageLayout was written for this and simply never wired up.
+    runtime->TransitionImageLayout(*this);
     storage_image_views.resize(info.resources.levels);
     if (WillUseAcceleratedAstcDecode(runtime->device, info)) {
         const auto& device = runtime->device.GetLogical();
