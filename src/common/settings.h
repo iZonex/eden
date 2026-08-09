@@ -713,6 +713,8 @@ struct Values {
                                              Category::RendererDebug};
     Setting<bool> dev_disable_native_astc{linkage, false, "dev_disable_native_astc",
                                           Category::RendererDebug};
+    Setting<bool> dev_disable_depth_clip_control{linkage, false, "dev_disable_depth_clip_control",
+                                                 Category::RendererDebug};
     Setting<bool> renderer_shader_feedback{linkage, false, "shader_feedback",
                                            Category::RendererDebug};
     Setting<bool> enable_nsight_aftermath{linkage, false, "nsight_aftermath",
