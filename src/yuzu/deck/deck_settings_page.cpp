@@ -548,7 +548,8 @@ void DeckSettingsPage::ApplyTheme() {
 }
 
 void DeckSettingsPage::Build(Core::System& system) {
-    ConfigurationShared::Builder builder(this, !system.IsPoweredOn());
+    builder = std::make_unique<ConfigurationShared::Builder>(this, !system.IsPoweredOn());
+    auto& builder_ref = *builder;
     const auto translations = ConfigurationShared::InitializeTranslations(this);
 
     for (const auto& def : kCategories) {
@@ -618,7 +619,7 @@ void DeckSettingsPage::Build(Core::System& system) {
                 // widget, that apply function must be dropped too — otherwise Apply() later invokes a
                 // serializer that dereferences the deleted widget (SIGSEGV). Trim back on any drop.
                 const std::size_t apply_mark = apply_funcs.size();
-                auto* widget = builder.BuildWidget(setting, apply_funcs);
+                auto* widget = builder_ref.BuildWidget(setting, apply_funcs);
                 if (widget == nullptr) {
                     apply_funcs.resize(apply_mark);
                     continue;
