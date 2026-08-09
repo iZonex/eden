@@ -131,10 +131,14 @@ NpadStyleTag HIDCore::GetSupportedStyleTag() const {
 }
 
 s8 HIDCore::GetPlayerCount() const {
+    // GetEmulatedController returns null for an id it does not know, and these three loops are
+    // reached from the applet completion path — where a crash inside IsConnected took the emulator
+    // down mid-boot, leaving a half-built shader cache behind and the next run rendering with the
+    // pipelines that never got compiled. Check before dereferencing.
     s8 active_players = 0;
     for (std::size_t player_index = 0; player_index < available_controllers - 2; ++player_index) {
         const auto* const controller = GetEmulatedControllerByIndex(player_index);
-        if (controller->IsConnected()) {
+        if (controller != nullptr && controller->IsConnected()) {
             active_players++;
         }
     }
@@ -144,7 +148,7 @@ s8 HIDCore::GetPlayerCount() const {
 NpadIdType HIDCore::GetFirstNpadId() const {
     for (std::size_t player_index = 0; player_index < available_controllers; ++player_index) {
         const auto* const controller = GetEmulatedControllerByIndex(player_index);
-        if (controller->IsConnected()) {
+        if (controller != nullptr && controller->IsConnected()) {
             return controller->GetNpadIdType();
         }
     }
@@ -154,7 +158,7 @@ NpadIdType HIDCore::GetFirstNpadId() const {
 NpadIdType HIDCore::GetFirstDisconnectedNpadId() const {
     for (std::size_t player_index = 0; player_index < available_controllers; ++player_index) {
         const auto* const controller = GetEmulatedControllerByIndex(player_index);
-        if (!controller->IsConnected()) {
+        if (controller != nullptr && !controller->IsConnected()) {
             return controller->GetNpadIdType();
         }
     }
