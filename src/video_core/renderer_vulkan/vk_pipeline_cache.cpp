@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstddef>
 #include <fstream>
 #include <iostream>
@@ -437,11 +438,12 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
 
         .lower_left_origin_mode = false,
         .need_declared_frag_colors = false,
-        .need_gather_subpixel_offset = driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
+        .need_gather_subpixel_offset = std::getenv("EDEN_NO_GATHER_SUBPIXEL") == nullptr &&
+                                      (driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
                                        driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
                                        driver_id == VK_DRIVER_ID_MESA_RADV ||
                                        driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS ||
-                                       driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA,
+                                       driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA),
 
         .has_broken_spirv_clamp = driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS,
         .has_broken_spirv_position_input = driver_id == false,
@@ -472,9 +474,15 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .support_float64 = device.IsFloat64Supported(),
         .support_float16 = device.IsFloat16Supported(),
         .support_int64 = device.IsShaderInt64Supported(),
-        .needs_demote_reorder = driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
-                                driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
-                                driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY,
+        // Two driver quirks that split the Deck from a Mac. The demote reorder is applied on AMD's
+        // other drivers but not on RADV, and it governs how a shader discards a pixel — which is
+        // how alpha-tested surfaces such as grates and cages are drawn, the very things reported as
+        // see-through. The gather offset is the reverse: set on RADV and not on MoltenVK. Both are
+        // overridable so the pair can be bisected on the hardware that actually shows the fault.
+        .needs_demote_reorder = (driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
+                                 driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
+                                 driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY ||
+                                 std::getenv("EDEN_FORCE_DEMOTE_REORDER") != nullptr),
         .support_snorm_render_buffer = true,
         .support_viewport_index_layer = device.IsExtShaderViewportIndexLayerSupported(),
         .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),
