@@ -101,7 +101,13 @@ VkViewport GetViewportState(const Device& device, const Maxwell& regs, size_t in
         .minDepth = src.translate_z - src.scale_z * reduce_z,
         .maxDepth = src.translate_z + src.scale_z,
     };
-    if (!device.IsExtDepthRangeUnrestrictedSupported()) {
+    // A device without VK_EXT_depth_range_unrestricted has the range clamped to [0,1]; one with it
+    // gets whatever the guest asked for. That is a real difference in how depth maps to the buffer,
+    // and everything that reads depth back — decals, lighting, occlusion — inherits it. The Deck has
+    // the extension and a Mac does not, which is also the line between the machine that renders this
+    // title wrong and the one that renders it right.
+    if (!device.IsExtDepthRangeUnrestrictedSupported() ||
+        Settings::values.dev_clamp_depth_range.GetValue()) {
         viewport.minDepth = std::clamp(viewport.minDepth, 0.0f, 1.0f);
         viewport.maxDepth = std::clamp(viewport.maxDepth, 0.0f, 1.0f);
     }

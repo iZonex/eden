@@ -659,6 +659,8 @@ struct Values {
                                                  Category::RendererDebug};
     Setting<bool> dev_disable_depth_bias_control{linkage, false, "dev_disable_depth_bias_control",
                                                  Category::RendererDebug};
+    Setting<bool> dev_clamp_depth_range{linkage, false, "dev_clamp_depth_range",
+                                        Category::RendererDebug};
 
     // How many threads compile pipelines at once. 0 means "decide from the hardware". Android has
     // had this knob for a while; desktop simply took every core minus one, which on a four-core
