@@ -709,7 +709,7 @@ bool ApplySteamDeckDefaultsOnce() {
     // records that it ran, so the user's later tuning is preserved. Bump the suffix whenever the
     // optimal profile below changes, so it re-applies exactly once on existing installs.
     const auto marker =
-        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v2";
+        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v4";
     if (Common::FS::Exists(marker)) {
         return false;
     }

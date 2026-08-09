@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <bitset>
 #include <chrono>
 #include <filesystem>
@@ -719,6 +720,16 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         descriptor_indexing.descriptorBindingUpdateUnusedWhilePending = false;
         descriptor_indexing.descriptorBindingVariableDescriptorCount = false;
         descriptor_indexing.runtimeDescriptorArray = false;
+    }
+
+    // Escape hatch for the descriptor-buffer path. It is new, it is the one thing that decides which
+    // texture a draw actually samples, and "an opaque surface came out fully transparent" is exactly
+    // what sampling the wrong or an empty descriptor looks like. Setting EDEN_NO_DESCRIPTOR_BUFFER=1
+    // falls back to the descriptor-set path without a rebuild, which turns a suspicion into an A/B.
+    if (extensions.descriptor_buffer && std::getenv("EDEN_NO_DESCRIPTOR_BUFFER") != nullptr) {
+        LOG_WARNING(Render_Vulkan, "EDEN_NO_DESCRIPTOR_BUFFER set — disabling descriptor buffer.");
+        RemoveExtensionFeature(extensions.descriptor_buffer, features.descriptor_buffer,
+                               VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
     }
 
     // VK_EXT_descriptor_buffer requires VK_KHR_buffer_device_address
