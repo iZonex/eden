@@ -1134,8 +1134,21 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     }
     boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
     boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
-    const VkImageAspectFlags src_aspect_mask = src.AspectMask();
-    const VkImageAspectFlags dst_aspect_mask = dst.AspectMask();
+    // A buffer-image copy region may name one aspect, never both, so handing the whole mask of a
+    // depth-stencil image straight to the driver is illegal and RADV answers with rubbish. There
+    // is no legal way to move the packed depth-stencil bits through a buffer in one go -- split
+    // into two planes and the bytes no longer line up with the format being reinterpreted -- so
+    // this carries the depth plane, which is what reinterpretation is after, and drops stencil.
+    const auto single_aspect = [](VkImageAspectFlags mask) {
+        constexpr VkImageAspectFlags both =
+            VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        if ((mask & both) == both && Settings::values.dev_split_depth_stencil_copy.GetValue()) {
+            return static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_DEPTH_BIT);
+        }
+        return mask;
+    };
+    const VkImageAspectFlags src_aspect_mask = single_aspect(src.AspectMask());
+    const VkImageAspectFlags dst_aspect_mask = single_aspect(dst.AspectMask());
 
     const auto bpp_in = BytesPerBlock(src.info.format) / DefaultBlockWidth(src.info.format);
     const auto bpp_out = BytesPerBlock(dst.info.format) / DefaultBlockWidth(dst.info.format);

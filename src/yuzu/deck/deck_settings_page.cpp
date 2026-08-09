@@ -99,7 +99,7 @@ const std::vector<CategoryDef> kCategories = {
      {"dev_force_demote_reorder", "dev_disable_gather_subpixel", "dev_disable_descriptor_buffer",
       "dev_disable_stencil_export", "dev_disable_native_astc",
       "dev_disable_depth_clip_control", "dev_disable_depth_bias_control", "dev_clamp_depth_range",
-      "pipeline_worker_count"}},
+      "dev_split_depth_stencil_copy", "dev_fix_color_feedback_loop", "pipeline_worker_count"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "About the Console"), PaneKind::About, {}, {}},
 };
 
@@ -169,6 +169,12 @@ const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
         {"dev_clamp_depth_range",
          {QObject::tr("Clamp depth range"),
           QObject::tr("Keeps the depth range within 0..1, as GPUs lacking the feature do.")}},
+        {"dev_split_depth_stencil_copy",
+         {QObject::tr("Legal depth copies"),
+          QObject::tr("Copies depth on its own, which the rules require and stencil loses out on.")}},
+        {"dev_fix_color_feedback_loop",
+         {QObject::tr("Break colour feedback loops"),
+          QObject::tr("Waits before writing to a texture the screen is still being drawn into.")}},
         {"dev_disable_depth_bias_control",
          {QObject::tr("No depth bias control"),
           QObject::tr("Applies depth bias the plain way, as GPUs lacking the feature do.")}},

@@ -720,6 +720,14 @@ struct Values {
     Setting<bool> dev_clamp_depth_range{linkage, false, "dev_clamp_depth_range",
                                         Category::RendererDebug};
 
+    // Two faults the validation layer reported while the artifacts were on screen. Both are real
+    // by the spec, but whether either is what the eye sees is exactly what these toggles are for,
+    // so each defaults to the behaviour that shipped.
+    Setting<bool> dev_split_depth_stencil_copy{linkage, false, "dev_split_depth_stencil_copy",
+                                               Category::RendererDebug};
+    Setting<bool> dev_fix_color_feedback_loop{linkage, false, "dev_fix_color_feedback_loop",
+                                              Category::RendererDebug};
+
     // How many threads compile pipelines at once. 0 means "decide from the hardware". Android has
     // had this knob for a while; desktop simply took every core minus one, which on a four-core
     // handheld means seven compilers running on top of the game itself — a burst big enough to
