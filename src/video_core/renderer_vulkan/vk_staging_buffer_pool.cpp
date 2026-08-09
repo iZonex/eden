@@ -11,6 +11,7 @@
 #include <fmt/ranges.h>
 
 #include "common/alignment.h"
+#include "common/steam_deck.h"
 #include "common/assert.h"
 #include "common/bit_util.h"
 #include "common/common_types.h"
@@ -33,10 +34,16 @@ constexpr VkDeviceSize MAX_ALIGNMENT = 256;
 // Windows ones however, can intake bigger buffers and generally do not OOM.
 // - GTX 960 on Windows will not OOM with 256mib
 // - GT 1030 on ^NIX will OOM with 256mib
+// The smaller Linux figure exists because an old low-memory discrete card ran out with 256 MiB.
+// A Deck is not that machine: it has 8 GiB of shared GTT to draw on, and the halved buffer only
+// costs it extra stalls. Give it the same allowance Windows and Android get.
 #if defined(_WIN32) || defined(__ANDROID__)
 constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE = 256_MiB;
 #else
-constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE = 128_MiB;
+constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE_DEFAULT = 128_MiB;
+constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE_HANDHELD = 256_MiB;
+#define MAX_STREAM_BUFFER_SIZE                                                                     \
+    (Common::IsSteamDeck() ? MAX_STREAM_BUFFER_SIZE_HANDHELD : MAX_STREAM_BUFFER_SIZE_DEFAULT)
 #endif
 
 size_t GetStreamBufferSize(const Device& device) {
