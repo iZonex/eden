@@ -5,12 +5,20 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "video_core/textures/workers.h"
+#include <algorithm>
+#include "common/steam_deck.h"
 
 namespace Tegra::Texture {
 
 Common::ThreadWorker& GetThreadWorkers() {
-    static Common::ThreadWorker workers{(std::max)(std::thread::hardware_concurrency(), 2U) / 2,
-                                        "ImageTranscode"};
+    // Half the hardware threads, but capped on a handheld. These run alongside the pipeline
+    // compilers, and on a four-core Deck the two pools together are enough to starve the game
+    // itself — worst of all during a first boot, when both are busiest at the same moment.
+    static Common::ThreadWorker workers{
+        Common::IsSteamDeck()
+            ? std::min<std::size_t>((std::max)(std::thread::hardware_concurrency(), 2U) / 2, 2U)
+            : (std::max)(std::thread::hardware_concurrency(), 2U) / 2,
+        "ImageTranscode"};
     return workers;
 }
 
