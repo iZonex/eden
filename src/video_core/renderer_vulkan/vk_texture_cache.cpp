@@ -2583,9 +2583,23 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     const bool has_custom_border_extension = runtime.device.IsExtCustomBorderColorSupported();
     const bool has_format_undefined =
         has_custom_border_extension && runtime.device.IsCustomBorderColorWithoutFormatSupported();
-    const bool has_custom_border_colors =
-        has_format_undefined && runtime.device.IsCustomBorderColorsSupported();
     const auto color = tsc.BorderColor();
+
+    const VkSamplerAddressMode address_u{
+        MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_u, tsc.mag_filter)};
+    const VkSamplerAddressMode address_v{
+        MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_v, tsc.mag_filter)};
+    const VkSamplerAddressMode address_w{
+        MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_p, tsc.mag_filter)};
+    // A border colour only means anything when an address mode can actually reach the border.
+    // Attaching a custom one regardless is how every sampler ended up carrying an undefined-format
+    // VkSamplerCustomBorderColorCreateInfoEXT, which the validation layer rejects the moment such a
+    // sampler meets a packed 16-bit image view.
+    const bool samples_border = address_u == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER ||
+                                address_v == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER ||
+                                address_w == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    const bool has_custom_border_colors =
+        samples_border && has_format_undefined && runtime.device.IsCustomBorderColorsSupported();
 
     const VkSamplerCustomBorderColorCreateInfoEXT border_ci{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT,
@@ -2615,6 +2629,25 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     } else if (reduction_ci.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT) {
         LOG_WARNING(Render_Vulkan, "VK_EXT_sampler_filter_minmax is required");
     }
+    // The same chain again, but naming the one packed 16-bit format the surface table actually
+    // produces. A sampler carrying an undefined-format custom border colour may not be paired with
+    // a view of such a format, so that pairing gets this variant instead.
+    const VkSamplerCustomBorderColorCreateInfoEXT packed_border_ci{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT,
+        .pNext = nullptr,
+        .customBorderColor = std::bit_cast<VkClearColorValue>(color),
+        .format = VK_FORMAT_B5G6R5_UNORM_PACK16,
+    };
+    const VkSamplerReductionModeCreateInfoEXT packed_reduction_ci{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT,
+        .pNext = &packed_border_ci,
+        .reductionMode = MaxwellToVK::SamplerReduction(tsc.reduction_filter),
+    };
+    const void* packed_pnext =
+        runtime.device.IsExtSamplerFilterMinmaxSupported()
+            ? static_cast<const void*>(&packed_reduction_ci)
+            : static_cast<const void*>(&packed_border_ci);
+
     // Some games have samplers with garbage. Sanitize them here.
     const f32 max_anisotropy = std::clamp(tsc.MaxAnisotropy(), 1.0f, 16.0f);
 
@@ -2626,17 +2659,18 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
                                     mipmap_mode == VK_SAMPLER_MIPMAP_MODE_LINEAR};
 
     const auto create_sampler = [&](const f32 anisotropy, bool force_nearest,
-                                    bool disable_compare = false) {
+                                    bool disable_compare = false,
+                                    const void* chain = nullptr) {
         return device.GetLogical().CreateSampler(VkSamplerCreateInfo{
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .pNext = pnext,
+            .pNext = chain ? chain : pnext,
             .flags = 0,
             .magFilter = force_nearest ? VK_FILTER_NEAREST : mag_filter,
             .minFilter = force_nearest ? VK_FILTER_NEAREST : min_filter,
             .mipmapMode = force_nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : mipmap_mode,
-            .addressModeU = MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_u, tsc.mag_filter),
-            .addressModeV = MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_v, tsc.mag_filter),
-            .addressModeW = MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_p, tsc.mag_filter),
+            .addressModeU = address_u,
+            .addressModeV = address_v,
+            .addressModeW = address_w,
             .mipLodBias = tsc.LodBias(),
             .anisotropyEnable =
                 static_cast<VkBool32>(!force_nearest && anisotropy > 1.0f ? VK_TRUE : VK_FALSE),
@@ -2663,6 +2697,9 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     }
     if (tsc.depth_compare_enabled) {
         sampler_noncompare = create_sampler(max_anisotropy, false, true);
+    }
+    if (has_custom_border_colors) {
+        sampler_packed_border = create_sampler(max_anisotropy, false, false, packed_pnext);
     }
 }
 

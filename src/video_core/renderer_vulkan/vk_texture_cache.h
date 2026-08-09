@@ -473,11 +473,22 @@ public:
         return static_cast<bool>(sampler_noncompare);
     }
 
+    /// A custom border colour left at VK_FORMAT_UNDEFINED is not allowed to meet a packed 16-bit
+    /// image view. This variant names the format so that pairing stays legal.
+    [[nodiscard]] VkSampler HandleWithPackedBorderFormat() const noexcept {
+        return *sampler_packed_border;
+    }
+
+    [[nodiscard]] bool HasPackedBorderFormat() const noexcept {
+        return static_cast<bool>(sampler_packed_border);
+    }
+
 private:
     vk::Sampler sampler;
     vk::Sampler sampler_default_anisotropy;
     vk::Sampler sampler_nearest;
     vk::Sampler sampler_noncompare;
+    vk::Sampler sampler_packed_border;
 };
 
 struct TextureCacheParams {
