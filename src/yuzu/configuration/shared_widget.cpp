@@ -143,6 +143,12 @@ QWidget* Widget::CreateCombobox(std::function<std::string()>& serializer,
             combobox->addItem(name);
         }
     } else {
+        // No value list for this type, so the box has no items. Leaving the serializer unset is what
+        // makes this fatal: the caller stores an apply function that invokes it regardless, and an
+        // empty std::function terminates the process the moment settings are applied. Hand back the
+        // setting's current value instead, so an unrepresentable setting is merely uneditable.
+        serializer = [this]() { return setting.ToString(); };
+        restore_func = [] {};
         return combobox;
     }
 
