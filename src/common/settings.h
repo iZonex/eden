@@ -717,6 +717,13 @@ struct Values {
                                                  Category::RendererDebug};
     Setting<bool> dev_disable_depth_bias_control{linkage, false, "dev_disable_depth_bias_control",
                                                  Category::RendererDebug};
+
+    // How many threads compile pipelines at once. 0 means "decide from the hardware". Android has
+    // had this knob for a while; desktop simply took every core minus one, which on a four-core
+    // handheld means seven compilers running on top of the game itself — a burst big enough to
+    // matter on a machine with shared memory and a thermal budget.
+    Setting<u32> pipeline_worker_count{linkage, 0, "pipeline_worker_count",
+                                       Category::RendererDebug};
     Setting<bool> renderer_shader_feedback{linkage, false, "shader_feedback",
                                            Category::RendererDebug};
     Setting<bool> enable_nsight_aftermath{linkage, false, "nsight_aftermath",

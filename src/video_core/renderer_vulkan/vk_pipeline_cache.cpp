@@ -16,6 +16,7 @@
 #include <bit>
 #include <numeric>
 #include "common/cityhash.h"
+#include "common/steam_deck.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
 #include "common/thread_worker.h"
@@ -315,6 +316,16 @@ size_t GetTotalPipelineWorkers() {
     }
     return std::min(max_core_threads, desired);
 #else
+    // An explicit count wins; otherwise cap the Deck. Seven compilers on four cores, sharing memory
+    // and thermal headroom with the running title, is a burst this machine does not need to take —
+    // and a first boot on a cold cache is exactly when it all arrives at once.
+    const u32 configured = Settings::values.pipeline_worker_count.GetValue();
+    if (configured > 0) {
+        return std::min<size_t>(max_core_threads, configured);
+    }
+    if (Common::IsSteamDeck()) {
+        return std::min<size_t>(max_core_threads, 4ULL);
+    }
     return max_core_threads;
 #endif
 }
