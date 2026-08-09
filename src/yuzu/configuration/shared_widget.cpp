@@ -165,8 +165,15 @@ QWidget* Widget::CreateCombobox(std::function<std::string()>& serializer,
     combobox->setCurrentIndex(find_index(setting_value));
 
     serializer = [this, enumeration]() {
-        int current = combobox->currentIndex();
-        return std::to_string(enumeration->at(current).first);
+        // currentIndex() is -1 whenever the stored value is not one of the offered options, and
+        // at(-1) throws out_of_range with nobody to catch it — the settings screen aborts the
+        // process the moment any row is touched. Fall back to what the setting already holds, which
+        // is both valid and the honest answer for a value the list cannot represent.
+        const int current = combobox->currentIndex();
+        if (current < 0 || static_cast<std::size_t>(current) >= enumeration->size()) {
+            return setting.ToString();
+        }
+        return std::to_string(enumeration->at(static_cast<std::size_t>(current)).first);
     };
 
     restore_func = [this, find_index]() {
