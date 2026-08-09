@@ -279,11 +279,21 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
 
             const ImageId view_image_id = slot_image_views[view.id].image_id;
             {
-                bool is_continue = false;
+                bool aliases_color_rt = false;
                 for (size_t i = 0; i < 8; ++i)
-                    is_continue |= (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
-                if (is_continue)
+                    aliases_color_rt |=
+                        (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
+                if (aliases_color_rt) {
+                    // A different view onto an image that is also a colour attachment is a real
+                    // feedback loop -- the exact-same-view case above is the legal one and was
+                    // already let through. Only the depth case below asked for a barrier, so
+                    // validation flags the colour one every frame: a storage image write landing
+                    // on framebuffer attachment 0.
+                    if (Settings::values.dev_fix_color_feedback_loop.GetValue()) {
+                        return true;
+                    }
                     continue;
+                }
             }
             if (depth_active && view_image_id == rt_depth_image_id) {
                 return true;
