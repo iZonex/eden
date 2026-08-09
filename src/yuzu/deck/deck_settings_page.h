@@ -4,6 +4,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <vector>
 #include <QString>
 
@@ -85,6 +86,11 @@ private:
     QListWidget* sidebar = nullptr;
     QStackedWidget* pane_stack = nullptr;
     std::vector<Category> categories;
+    // The Builder owns the value tables that every combobox serializer points into, so it has to
+    // outlive the widgets it makes. Kept here rather than on Build()'s stack: as a local it died at
+    // the end of construction and left every apply function dereferencing freed memory, which
+    // crashed the settings screen the moment anything was changed.
+    std::unique_ptr<ConfigurationShared::Builder> builder;
     std::vector<std::function<void(bool)>> apply_funcs;
     class ThemePane* theme_pane = nullptr; ///< the Themes section's picker widget
 
