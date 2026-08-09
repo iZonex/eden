@@ -9,6 +9,8 @@
 #include <bitset>
 #include <chrono>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <ankerl/unordered_dense.h>
 #include <utility>
@@ -982,6 +984,35 @@ bool Device::GetSuitability(bool requires_swapchain) {
     supported_extensions.clear();
     for (const VkExtensionProperties& property : extension_properties) {
         supported_extensions.insert(property.extensionName);
+    }
+
+    // Pretend the driver never advertised the extensions named in EDEN_DISABLE_EXTENSIONS, a
+    // comma-separated list. Dropping them here — before anything reads the set — makes every
+    // downstream flag, feature struct and code path behave as it does on a driver that genuinely
+    // lacks them, which is what makes a rendering fault reproducible across machines. Bisecting a
+    // driver difference then costs one relaunch per guess instead of one build.
+    if (const char* const disable_list = std::getenv("EDEN_DISABLE_EXTENSIONS")) {
+        std::string_view rest{disable_list};
+        while (!rest.empty()) {
+            const size_t comma = rest.find(',');
+            std::string_view name = rest.substr(0, comma);
+            rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+            while (!name.empty() && (name.front() == ' ' || name.front() == '\t')) {
+                name.remove_prefix(1);
+            }
+            while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) {
+                name.remove_suffix(1);
+            }
+            if (name.empty()) {
+                continue;
+            }
+            if (supported_extensions.erase(std::string{name}) > 0) {
+                LOG_WARNING(Render_Vulkan, "EDEN_DISABLE_EXTENSIONS: hiding {}", name);
+            } else {
+                LOG_WARNING(Render_Vulkan, "EDEN_DISABLE_EXTENSIONS: {} was not present anyway",
+                            name);
+            }
+        }
     }
 
     // Generate list of extensions to load.
