@@ -1489,6 +1489,15 @@ void EmitContext::DefineInputs(const IR::Program& program) {
             ConstantComposite(F32[4], f32_minus_one, f32_minus_one, f32_one, f32_minus_one);
     }
     if (loads[IR::Attribute::PrimitiveId]) {
+        // PrimitiveId is one of the built-ins SPIR-V gates behind Geometry, exactly as Layer just
+        // below is. Without the capability the module fails spirv-val, and an invalid module is
+        // undefined behaviour the drivers are free to read differently -- which is how the same
+        // build renders one way through MoltenVK and another through RADV. Declaring it needs the
+        // device to have geometry shaders; where it does not, the module stays as malformed as it
+        // has always been, because there is nothing better to emit.
+        if (profile.support_geometry_shader) {
+            AddCapability(spv::Capability::Geometry);
+        }
         primitive_id = DefineInput(*this, U32[1], false, spv::BuiltIn::PrimitiveId);
         if (stage == Stage::Fragment) {
             Decorate(primitive_id, spv::Decoration::Flat);
@@ -1632,6 +1641,10 @@ void EmitContext::DefineOutputs(const IR::Program& program) {
             throw NotImplementedException("Storing ClipDistance in fragment stage");
         }
         if (profile.max_user_clip_distances > 0) {
+            // Same omission as PrimitiveId above: the built-in needs its capability declared or
+            // the module is invalid. shaderClipDistance is a mandatory device feature, so there
+            // is nothing to guard against here.
+            AddCapability(spv::Capability::ClipDistance);
             const u32 used{(std::min)(profile.max_user_clip_distances, 8u)};
             const std::array<Id, 8> zero{f32_zero_value, f32_zero_value, f32_zero_value,
                                          f32_zero_value, f32_zero_value, f32_zero_value,
