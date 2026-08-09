@@ -513,11 +513,21 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     connect(&update_input_timer, &QTimer::timeout, this, &MainWindow::UpdateInputDrivers);
     update_input_timer.start();
 
-    // Steam Deck: reconcile controllers ~2 Hz, always (menu and in-game), so a pad that dropped and
-    // came back is remapped to its player automatically without a manual re-map.
+    // Steam Deck: reconcile controllers ~2 Hz while no title is running, so a pad that dropped and
+    // came back is remapped to its player without a manual re-map.
+    //
+    // Deliberately NOT during a game. This pass mutates HID — it connects, disconnects and rewrites
+    // bindings — from the GUI thread, while the emulated services read the very same controllers
+    // from theirs. That raced and took the emulator down with a null controller inside
+    // EmulatedController::IsConnected, caught in the act as a system applet was starting and HID was
+    // being rebuilt. There is nothing for it to do mid-game anyway: the mapping is already settled
+    // by the time a title boots.
     if (Common::IsSteamDeck()) {
         deck_reconcile_timer.setInterval(500);
         connect(&deck_reconcile_timer, &QTimer::timeout, this, [this] {
+            if (QtCommon::system->IsPoweredOn()) {
+                return;
+            }
             FrontendCommon::ReconcileSteamDeckControllers(*input_subsystem,
                                                           QtCommon::system->HIDCore());
         });
