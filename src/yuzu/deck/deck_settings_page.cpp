@@ -90,6 +90,14 @@ const std::vector<CategoryDef> kCategories = {
      {{false, Settings::Category::System}},
      {"language_index", "region_index", "time_zone_index", "use_docked_mode",
       "custom_rtc_enabled", "custom_rtc"}},
+    // Kept apart from the console sections above on purpose: these are not settings a Switch owner
+    // would ever see, they are switches for bisecting a rendering fault on the machine that shows
+    // it. Grouping them here keeps the console screens honest while still making the experiments
+    // reachable without a rebuild for every hypothesis.
+    {QT_TRANSLATE_NOOP("DeckSettingsPage", "Developer"), PaneKind::Settings,
+     {{false, Settings::Category::RendererDebug}},
+     {"dev_force_demote_reorder", "dev_disable_gather_subpixel", "dev_disable_descriptor_buffer",
+      "dev_disable_stencil_export", "dev_disable_native_astc"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "About the Console"), PaneKind::About, {}, {}},
 };
 
@@ -139,6 +147,23 @@ const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
           QObject::tr("Matches frames to the screen so the picture does not tear.")}},
         {"fullscreen_mode",
          {QObject::tr("Fullscreen Mode"), QObject::tr("How games fill the screen.")}},
+
+        {"dev_force_demote_reorder",
+         {QObject::tr("Reorder pixel discard"),
+          QObject::tr("Applies an AMD driver workaround this GPU is normally excluded from. "
+                      "Affects see-through grates and cages.")}},
+        {"dev_disable_gather_subpixel",
+         {QObject::tr("No gather offset"),
+          QObject::tr("Drops a sampling workaround this GPU normally gets.")}},
+        {"dev_disable_descriptor_buffer",
+         {QObject::tr("No descriptor buffers"),
+          QObject::tr("Falls back to the older way of handing textures to the GPU.")}},
+        {"dev_disable_stencil_export",
+         {QObject::tr("No stencil export"),
+          QObject::tr("Resolves depth without stencil, as GPUs lacking the feature do.")}},
+        {"dev_disable_native_astc",
+         {QObject::tr("Force texture decoding"),
+          QObject::tr("Decodes compressed textures in software even where the GPU could do it.")}},
 
         {"language_index",
          {QObject::tr("Console Language"),
