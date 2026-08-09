@@ -639,6 +639,22 @@ struct Values {
                                                        "vertex_input_dynamic_state", Category::RendererExtensions};
 
     Setting<bool> renderer_debug{linkage, false, "debug", Category::RendererDebug};
+
+    // Driver-quirk overrides, exposed so a rendering fault can be bisected on the machine that
+    // shows it instead of through a build per hypothesis. Each one forces a path that normally
+    // depends on which driver is underneath — the difference between a Deck on RADV and a Mac on
+    // MoltenVK. All are read when the graphics device is created, so a game has to be restarted
+    // for a change to take effect.
+    Setting<bool> dev_force_demote_reorder{linkage, false, "dev_force_demote_reorder",
+                                           Category::RendererDebug};
+    Setting<bool> dev_disable_gather_subpixel{linkage, false, "dev_disable_gather_subpixel",
+                                              Category::RendererDebug};
+    Setting<bool> dev_disable_descriptor_buffer{linkage, false, "dev_disable_descriptor_buffer",
+                                                Category::RendererDebug};
+    Setting<bool> dev_disable_stencil_export{linkage, false, "dev_disable_stencil_export",
+                                             Category::RendererDebug};
+    Setting<bool> dev_disable_native_astc{linkage, false, "dev_disable_native_astc",
+                                          Category::RendererDebug};
     Setting<bool> renderer_shader_feedback{linkage, false, "shader_feedback",
                                            Category::RendererDebug};
     Setting<bool> enable_nsight_aftermath{linkage, false, "nsight_aftermath",

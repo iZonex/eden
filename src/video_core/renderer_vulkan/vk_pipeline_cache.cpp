@@ -434,7 +434,8 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
 
         .lower_left_origin_mode = false,
         .need_declared_frag_colors = false,
-        .need_gather_subpixel_offset = std::getenv("EDEN_NO_GATHER_SUBPIXEL") == nullptr &&
+        .need_gather_subpixel_offset = !Settings::values.dev_disable_gather_subpixel.GetValue() &&
+                                      std::getenv("EDEN_NO_GATHER_SUBPIXEL") == nullptr &&
                                       (driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
                                        driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
                                        driver_id == VK_DRIVER_ID_MESA_RADV ||
@@ -477,6 +478,7 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .needs_demote_reorder = (driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
                                  driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
                                  driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY ||
+                                 Settings::values.dev_force_demote_reorder.GetValue() ||
                                  std::getenv("EDEN_FORCE_DEMOTE_REORDER") != nullptr),
         .support_snorm_render_buffer = true,
         .support_viewport_index_layer = device.IsExtShaderViewportIndexLayerSupported(),

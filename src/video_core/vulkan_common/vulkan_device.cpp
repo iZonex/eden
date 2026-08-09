@@ -487,6 +487,16 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     is_blit_depth24_stencil8_supported = TestDepthStencilBlits(VK_FORMAT_D24_UNORM_S8_UINT);
     is_blit_depth32_stencil8_supported = TestDepthStencilBlits(VK_FORMAT_D32_SFLOAT_S8_UINT);
     is_optimal_astc_supported = ComputeIsOptimalAstcSupported();
+    // Apple GPUs decode ASTC in hardware; AMD does not, so the Deck runs the emulated decoder for
+    // every ASTC texture while the Mac never touches it. That is the single largest difference
+    // between the two machines in the area where the artifacts actually appear — textures. Forcing
+    // this off makes the Mac take the Deck's path, so the decoder can be blamed or cleared locally
+    // instead of over a half-hour build-and-ship loop.
+    if (is_optimal_astc_supported && (Settings::values.dev_disable_native_astc.GetValue() ||
+         std::getenv("EDEN_NO_NATIVE_ASTC") != nullptr)) {
+        LOG_WARNING(Render_Vulkan, "EDEN_NO_NATIVE_ASTC set — using the emulated ASTC decoder.");
+        is_optimal_astc_supported = false;
+    }
     is_warp_potentially_bigger = !extensions.subgroup_size_control ||
                                  properties.subgroup_size_control.maxSubgroupSize > GuestWarpSize;
 
@@ -740,7 +750,8 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     // is one of the few rendering paths that runs on the Deck's RADV but not on MoltenVK — where the
     // very same build renders the very same scene correctly. Turning it off here puts both on the
     // same path, which is the whole point of having two machines to compare.
-    if (extensions.shader_stencil_export && std::getenv("EDEN_NO_STENCIL_EXPORT") != nullptr) {
+    if (extensions.shader_stencil_export && (Settings::values.dev_disable_stencil_export.GetValue() ||
+         std::getenv("EDEN_NO_STENCIL_EXPORT") != nullptr)) {
         LOG_WARNING(Render_Vulkan, "EDEN_NO_STENCIL_EXPORT set — disabling shader stencil export.");
         extensions.shader_stencil_export = false;
     }
@@ -749,7 +760,8 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     // texture a draw actually samples, and "an opaque surface came out fully transparent" is exactly
     // what sampling the wrong or an empty descriptor looks like. Setting EDEN_NO_DESCRIPTOR_BUFFER=1
     // falls back to the descriptor-set path without a rebuild, which turns a suspicion into an A/B.
-    if (extensions.descriptor_buffer && std::getenv("EDEN_NO_DESCRIPTOR_BUFFER") != nullptr) {
+    if (extensions.descriptor_buffer && (Settings::values.dev_disable_descriptor_buffer.GetValue() ||
+         std::getenv("EDEN_NO_DESCRIPTOR_BUFFER") != nullptr)) {
         LOG_WARNING(Render_Vulkan, "EDEN_NO_DESCRIPTOR_BUFFER set — disabling descriptor buffer.");
         RemoveExtensionFeature(extensions.descriptor_buffer, features.descriptor_buffer,
                                VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
