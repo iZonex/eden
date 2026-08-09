@@ -22,6 +22,7 @@
 #include "common/assert.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
+#include "common/steam_deck.h"
 #include "common/literals.h"
 #include <ranges>
 #include "common/settings.h"
@@ -1673,7 +1674,12 @@ void Device::CollectPhysicalMemoryInfo() {
     if (is_integrated) {
         const s64 available_memory = static_cast<s64>(device_access_memory - device_initial_usage);
         const u64 memory_size = Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive ? 6_GiB : 4_GiB;
-        device_access_memory = static_cast<u64>(std::max<s64>(std::min<s64>(available_memory - 8_GiB, memory_size), std::min<s64>(local_memory, memory_size)));
+        // Hold back less on a handheld. Reserving a flat 8 GiB assumes a desktop that also has to
+        // feed a whole OS; a Deck has 16 GiB total and nothing else running, and once memory fills
+        // this term goes negative and the budget collapses to whatever the BIOS set aside for the
+        // GPU — a gigabyte by default. Half the reserve keeps the intent without the cliff.
+        const s64 system_reserve = Common::IsSteamDeck() ? 4_GiB : 8_GiB;
+        device_access_memory = static_cast<u64>(std::max<s64>(std::min<s64>(available_memory - system_reserve, memory_size), std::min<s64>(local_memory, memory_size)));
     } else {
         const u64 reserve_memory = std::min<u64>(device_access_memory / 8, 1_GiB);
         device_access_memory -= reserve_memory;
