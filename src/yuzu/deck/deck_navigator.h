@@ -7,30 +7,17 @@
 #include <QObject>
 #include <Qt>
 
+#include "common/settings_enums.h"
+
 class QTimer;
 
 namespace Core::HID {
 class HIDCore;
 }
 
-/**
- * How far the printed letters on the pad's face buttons have drifted from the npad bits.
- *
- * SDL binds face buttons by POSITION (south/east/west/north), and the emulator's default turns
- * those positions into the Switch's own layout — A right, B bottom, X top, Y left. On a Nintendo
- * pad the printed letter and the npad bit therefore agree and nothing needs doing.
- *
- * A plain Xbox-lettered pad prints the other member of each pair on those positions, so all four
- * are off. The Steam Deck's built-in controls are a special case: Steam Input already presents them
- * with Nintendo's A/B arrangement, so only X and Y are left crossed — swapping all four there would
- * un-fix A/B, which is a bug this shell has already had once.
- */
-enum class DeckFaceLayout {
-    Auto,     ///< Work it out from the connected pad (default).
-    Nintendo, ///< Nothing crossed: A right, B bottom, X top, Y left.
-    SwapXY,   ///< Steam Deck built-in controls: A/B already right, X and Y crossed.
-    SwapAll,  ///< Plain Xbox-lettered pad: A bottom, B right, X left, Y top.
-};
+// Which letters the pad prints on its face buttons; see Settings::DeckFaceLayout for what each
+// value means and why the drift exists at all.
+using DeckFaceLayout = Settings::DeckFaceLayout;
 
 /**
  * Reads every connected controller and turns it into high-level, console-style UI intents for

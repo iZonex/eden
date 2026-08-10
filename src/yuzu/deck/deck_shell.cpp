@@ -185,22 +185,9 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     navigator = new DeckNavigator(system.HIDCore(), this);
     ConnectNavigator();
 
-    // Which letters the pad prints on its face buttons (see DeckFaceLayout). Saved alongside the
-    // theme in the same per-console QSettings store.
-    {
-        QSettings settings(QStringLiteral("Eden"), QStringLiteral("deck"));
-        const auto layout = static_cast<DeckFaceLayout>(
-            settings.value(QStringLiteral("face_layout"), 0).toInt());
-        navigator->SetFaceLayout(layout);
-        settings_page->SetFaceLayout(layout);
-    }
-    connect(settings_page, &DeckSettingsPage::FaceLayoutChangeRequested, this,
-            [this](DeckFaceLayout layout) {
-                navigator->SetFaceLayout(layout);
-                QSettings settings(QStringLiteral("Eden"), QStringLiteral("deck"));
-                settings.setValue(QStringLiteral("face_layout"), static_cast<int>(layout));
-                UpdateHints();
-            });
+    // Which letters the pad prints on its face buttons. It is an ordinary setting living with the
+    // other controller options, so it comes from there rather than a store of our own.
+    navigator->SetFaceLayout(Settings::values.deck_face_layout.GetValue());
 
     stack->setCurrentWidget(games_page);
 
@@ -241,6 +228,8 @@ void DeckShell::ShowPage(QWidget* page) {
     // Tidy up the page we are leaving.
     if (stack->currentWidget() == settings_page && page != settings_page) {
         settings_page->Apply();
+        // Apply() is what writes the rows back, so the button-layout row only takes effect now.
+        navigator->SetFaceLayout(Settings::values.deck_face_layout.GetValue());
     }
     if (stack->currentWidget() == controllers_page && page != controllers_page) {
         controllers_page->OnDeactivated();
