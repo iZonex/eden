@@ -783,16 +783,15 @@ void DeckGamesPage::ResortNow() {
     // tracking notices a launch. Re-sorting drops the view's current index on the way, so put the
     // cursor back on the same game afterwards.
     const u64 keep = CurrentGameIndex().data(GameListItemPath::ProgramIdRole).toULongLong();
-    // sort(-1) then sort(0) rather than invalidate(): this only re-runs the comparator and emits a
-    // layout change, where invalidate() also re-runs the row filter and can turn into a full model
-    // reset — much heavier for everything mapped on top of this proxy.
-    filter->sort(-1);
+    // Re-attach the source rather than re-sorting in place. Sorting or invalidating a proxy
+    // announces itself with layoutChanged, and QConcatenateTablesProxyModel — which sits above this
+    // chain to append the All Software tile — does not survive that coming from a source: with a
+    // real library it walked a stale mapping and took the process with it. Swapping the source is a
+    // plain model reset, which every proxy in the chain handles, and it re-runs the comparator over
+    // everything on the way back in. The rail is twelve tiles wide, so the cost is invisible.
+    filter->setSourceModel(nullptr);
+    filter->setSourceModel(model);
     filter->sort(0);
-    // The rail's cap sits on top and selects rows by POSITION, so which twelve games it keeps only
-    // changes if it re-runs its own filter over the new order.
-    if (head != nullptr) {
-        head->invalidate();
-    }
 
     const int rows = rail_model != nullptr ? rail_model->rowCount() : 0;
     if (rows == 0) {
