@@ -30,6 +30,8 @@
 #include "qt_common/game_list/model.h"
 #include "yuzu/deck/deck_game_delegate.h"
 #include "yuzu/deck/deck_games_page.h"
+#include "yuzu/deck/deck_library_order.h"
+#include "yuzu/deck/deck_library_stats.h"
 #include "yuzu/deck/deck_theme.h"
 
 #include <fmt/format.h>
@@ -187,6 +189,9 @@ public:
     void SetPlayTime(const PlayTime::PlayTimeManager* pt) {
         play_time = pt;
     }
+    void SetStats(const DeckLibraryStats* s) {
+        stats = s;
+    }
 
 protected:
     bool filterAcceptsRow(int row, const QModelIndex& parent) const override {
@@ -204,27 +209,22 @@ protected:
         return !name.trimmed().isEmpty();
     }
 
-    // Recently/most-played first: games you've actually opened (play time > 0) sort to the front,
-    // ordered by play time, then everything you haven't opened follows by title — so the first few
-    // tiles are the games you play and the rest are one scroll away. (Replaces the old favourites.)
+    // Newest activity first: whichever is later, when the game appeared in the library or when it
+    // was last launched. A title you just copied onto the Deck is at the front, and launching
+    // anything puts it back there, so the games you actually play stay within a tile or two of the
+    // start. (Replaces ordering by cumulative play time, which buried a new game behind a hundred
+    // hours of something you finished months ago.)
     bool lessThan(const QModelIndex& left, const QModelIndex& right) const override {
-        const auto lpid = left.data(GameListItemPath::ProgramIdRole).toULongLong();
-        const auto rpid = right.data(GameListItemPath::ProgramIdRole).toULongLong();
-        const u64 lt = play_time != nullptr ? play_time->GetPlayTime(lpid) : 0;
-        const u64 rt = play_time != nullptr ? play_time->GetPlayTime(rpid) : 0;
-        if ((lt > 0) != (rt > 0)) {
-            return lt > 0; // played games first
+        if (stats == nullptr) {
+            return left.data(GameListItemPath::TitleRole).toString().localeAwareCompare(
+                       right.data(GameListItemPath::TitleRole).toString()) < 0;
         }
-        if (lt != rt) {
-            return lt > rt; // more play time first
-        }
-        const QString lname = left.data(GameListItemPath::TitleRole).toString();
-        const QString rname = right.data(GameListItemPath::TitleRole).toString();
-        return lname.localeAwareCompare(rname) < 0;
+        return DeckLessThan(left, right, DeckSortKey::Recent, *stats, play_time);
     }
 
 private:
     const PlayTime::PlayTimeManager* play_time = nullptr;
+    const DeckLibraryStats* stats = nullptr;
 };
 } // namespace
 
@@ -552,8 +552,9 @@ protected:
 } // namespace
 
 DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
-                             const PlayTime::PlayTimeManager& play_time_manager, QWidget* parent)
-    : DeckPage(parent), system{system_}, model{model_} {
+                             const PlayTime::PlayTimeManager& play_time_manager,
+                             DeckLibraryStats& stats_, QWidget* parent)
+    : DeckPage(parent), system{system_}, model{model_}, stats{stats_} {
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
@@ -582,11 +583,29 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     outer->addWidget(game_title);
     outer->addSpacing(6);
 
+    // Stamp a first-seen date on every title as it is scanned. Connected to the raw model, and
+    // before the sorting proxy is attached to it, so each row already has its ordering key by the
+    // time the proxy places it. (The final order does not depend on that: OnActivated re-sorts once
+    // the scan completes, which is also what catches rows added while the shell was closed.)
+    connect(model, &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex& parent, int first, int last) {
+                for (int row = first; row <= last; ++row) {
+                    const QModelIndex idx = model->index(row, 0, parent);
+                    if (idx.data(GameListItem::TypeRole).toInt() !=
+                        static_cast<int>(GameListItemType::Game)) {
+                        continue;
+                    }
+                    stats.NoteSeen(idx.data(GameListItemPath::ProgramIdRole).toULongLong(),
+                                   idx.data(GameListItemPath::FullPathRole).toString());
+                }
+            });
+
     auto* library = new LibraryFilter(this);
     library->SetPlayTime(&play_time_manager);
+    library->SetStats(&stats);
     filter = library;
     filter->setSourceModel(model);
-    filter->sort(0); // recently/most-played first, then the rest by title
+    filter->sort(0); // newest activity first (added or launched), then the rest by title
 
     // Home shows only the most-recent titles (Switch-style); the full library is behind All Software.
     // head caps the recency-sorted filter to kHomeRailRecent on home, and lifts the cap in the grid.
@@ -607,6 +626,7 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     rail = new QListView(this);
     rail->setModel(rail_model);
     delegate = new DeckGameDelegate(rail);
+    delegate->SetStats(&stats); // so a freshly-added game wears its NEW badge here too
     rail->setItemDelegate(delegate);
     rail->setViewMode(QListView::IconMode);
     rail->setFlow(QListView::LeftToRight);
@@ -736,6 +756,40 @@ QAbstractItemModel* DeckGamesPage::LibraryModel() const {
     return filter; // the LibraryFilter: every game with art, recency-sorted (uncapped)
 }
 
+void DeckGamesPage::Resort() {
+    if (filter == nullptr) {
+        return;
+    }
+    // The ordering key (recent activity) is not model data, so nothing in the proxy's own change
+    // tracking notices a launch. Invalidating re-runs the comparator over every row — and clears
+    // the view's current index on the way, so put the cursor back on the same game afterwards.
+    const u64 keep = CurrentGameIndex().data(GameListItemPath::ProgramIdRole).toULongLong();
+    filter->invalidate();
+    filter->sort(0);
+    // The rail's cap sits on top and selects rows by POSITION, so which twelve games it keeps only
+    // changes if it re-runs its own filter over the new order.
+    if (head != nullptr) {
+        head->invalidate();
+    }
+
+    const int rows = rail_model != nullptr ? rail_model->rowCount() : 0;
+    if (rows == 0) {
+        return;
+    }
+    for (int row = 0; row < rows; ++row) {
+        const QModelIndex idx = rail_model->index(row, 0);
+        if (keep != 0 && idx.data(GameListItemPath::ProgramIdRole).toULongLong() == keep) {
+            rail->setCurrentIndex(idx);
+            rail->scrollTo(idx, QAbstractItemView::PositionAtCenter);
+            UpdateGameTitle();
+            return;
+        }
+    }
+    rail->setCurrentIndex(rail_model->index(0, 0));
+    rail->scrollToTop();
+    UpdateGameTitle();
+}
+
 void DeckGamesPage::SetSuspendedGame(u64 program_id) {
     if (delegate != nullptr) {
         delegate->SetSuspendedProgramId(program_id);
@@ -855,6 +909,10 @@ void DeckGamesPage::UpdateGameTitle() {
 void DeckGamesPage::OnActivated() {
     launched = false; // returned to the console; allow launching again
     SetGridMode(false); // always land on the home rail, not the "see all" grid
+    // Coming back from a game (or from a scan that found new titles) changes the order, and nothing
+    // in the model changed to tell the proxy so. Re-sort before the rail is shown.
+    Resort();
+    stats.Save();
     clock_timer->start();
     const bool empty = IsEmpty();
     placeholder->setVisible(empty);
@@ -1037,25 +1095,9 @@ void DeckGamesPage::PlayCurrentGame() {
 }
 
 void DeckGamesPage::EmitCurrentGame() {
-    const QModelIndex index = CurrentGameIndex();
-    if (!index.isValid()) {
-        return;
-    }
-    if (index.data(GameListItem::TypeRole).toInt() != static_cast<int>(GameListItemType::Game)) {
-        return;
-    }
-    const QString path = index.data(GameListItemPath::FullPathRole).toString();
-    const u64 program_id = index.data(GameListItemPath::ProgramIdRole).toULongLong();
-    QString title = index.data(GameListItemPath::TitleRole).toString();
-    if (title.isEmpty()) {
-        title = index.data(Qt::DisplayRole).toString();
-    }
-    const QPixmap art = index.data(Qt::DecorationRole).value<QPixmap>();
-    const QString meta = index.data(Qt::ToolTipRole).toString();
-    const u64 pid = index.data(GameListItemPath::ProgramIdRole).toULongLong();
-    const bool fav = pid != 0 && UISettings::values.favorited_ids.contains(pid);
-    if (!path.isEmpty()) {
-        emit GameActivated(path, program_id, title, art, meta, fav);
+    const DeckGameInfo info = DeckGameInfo::FromIndex(CurrentGameIndex(), stats);
+    if (!info.path.isEmpty()) {
+        emit GameActivated(info);
     }
 }
 

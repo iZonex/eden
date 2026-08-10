@@ -15,6 +15,10 @@ constexpr int kMaxLen = 32;
 } // namespace
 
 DeckKeyboard::DeckKeyboard(QWidget* parent) : QWidget(parent) {
+    // paintEvent dims the page behind rather than replacing it, so the shell's "fill every widget
+    // with the window colour" pass has to leave this one alone.
+    setProperty("deckTranslucent", true);
+    setAutoFillBackground(false);
     Rebuild();
     setVisible(false);
 }

@@ -174,6 +174,9 @@ add_executable(yuzu
     deck/deck_album_page.cpp deck/deck_album_page.h
     deck/deck_all_software_page.cpp deck/deck_all_software_page.h
     deck/deck_groups.cpp deck/deck_groups.h
+    deck/deck_library_stats.cpp deck/deck_library_stats.h
+    deck/deck_library_order.cpp deck/deck_library_order.h
+    deck/deck_option_menu.cpp deck/deck_option_menu.h
     deck/deck_keyboard.cpp deck/deck_keyboard.h
     deck/deck_shell.cpp deck/deck_shell.h
 

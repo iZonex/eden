@@ -6,6 +6,8 @@
 #include <utility>
 #include <QTimer>
 
+#include <SDL3/SDL.h>
+
 #include "common/logging.h"
 #include "common/param_package.h"
 #include "common/settings_input.h"
@@ -26,6 +28,41 @@ constexpr int kInitialDelayTicks = 15; // ~240 ms before autorepeat kicks in
 constexpr int kRepeatTicks = 6;        // ~100 ms between repeats at first
 constexpr int kFastRepeatTicks = 3;    // ~50 ms once the hold has been sustained
 constexpr int kAccelerateAfterTicks = 70;
+
+// How often (in poll ticks, ~16 ms each) Auto re-asks SDL which pad is connected, so plugging a Pro
+// Controller in mid-session flips the lettering without a restart.
+constexpr int kLayoutPollTicks = 60; // ~1 s
+
+/// True when EVERY connected pad is Nintendo-lettered (A right, B bottom, X top, Y left). With no
+/// pad enumerated the caller keeps whatever it had — a keyboard-driven session has no lettering.
+///
+/// "All", not "any": on a Deck with a Pro Controller also plugged in, letting the Pro Controller
+/// decide would flip the lettering for the Deck's own built-in controls, which is the pad actually
+/// in the user's hands most of the time. Erring towards the built-in keeps the common case right,
+/// and the Change Button Mapping screen is there for anyone who wants the other answer.
+bool AllNintendoPads(bool& any_pad) {
+    int count = 0;
+    SDL_JoystickID* const ids = SDL_GetGamepads(&count);
+    any_pad = ids != nullptr && count > 0;
+    bool nintendo = any_pad;
+    for (int i = 0; i < count; ++i) {
+        // GetReal* rather than GetGamepadTypeForID: the plain call honours the type-override hints
+        // (which the emulator sets so guests see a Switch pad), and would answer "Nintendo" for
+        // every device. We want the physical hardware's lettering, not what the guest is told.
+        switch (SDL_GetRealGamepadTypeForID(ids[i])) {
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+            break;
+        default:
+            nintendo = false;
+            break;
+        }
+    }
+    SDL_free(ids);
+    return nintendo;
+}
 } // namespace
 
 DeckNavigator::DeckNavigator(Core::HID::HIDCore& hid_core_, QObject* parent)
@@ -60,6 +97,8 @@ void DeckNavigator::SetActive(bool active_) {
         }
         held_dir = 0;
         ticks_held = 0;
+        layout_poll_ticks = 0;
+        RefreshFaceLayout();
         timer->start();
     } else {
         timer->stop();
@@ -67,6 +106,54 @@ void DeckNavigator::SetActive(bool active_) {
         held_dir = 0;
         ticks_held = 0;
     }
+}
+
+void DeckNavigator::SetFaceLayout(DeckFaceLayout layout) {
+    if (face_layout == layout) {
+        return;
+    }
+    face_layout = layout;
+    const bool was = use_label_order;
+    RefreshFaceLayout();
+    if (use_label_order == was) {
+        emit FaceLayoutChanged(); // the resolved order didn't move, but the hint bar may still care
+    }
+}
+
+void DeckNavigator::RefreshFaceLayout() {
+    const bool was = use_label_order;
+    switch (face_layout) {
+    case DeckFaceLayout::Nintendo:
+        use_label_order = false;
+        break;
+    case DeckFaceLayout::Labels:
+        use_label_order = true;
+        break;
+    case DeckFaceLayout::Auto: {
+        bool any_pad = false;
+        const bool nintendo = AllNintendoPads(any_pad);
+        if (any_pad) {
+            use_label_order = !nintendo;
+        }
+        break;
+    }
+    }
+    if (use_label_order != was) {
+        LOG_INFO(Input, "Deck menu: face lettering is now {}",
+                 use_label_order ? "Xbox/Deck (A bottom)" : "Nintendo (A right)");
+        emit FaceLayoutChanged();
+    }
+}
+
+DeckNavigator::FaceBits DeckNavigator::Face() const {
+    if (!use_label_order) {
+        // Nintendo-lettered pad: the printed letter and the npad bit already agree.
+        return {BtnA, BtnB, BtnX, BtnY};
+    }
+    // Xbox-lettered pad (Steam Deck). SDL binds by position and the emulator's default turns those
+    // positions into the Switch layout, so each printed letter lands on the OTHER bit of its pair:
+    // A(bottom)->NpadB, B(right)->NpadA, X(left)->NpadY, Y(top)->NpadX.
+    return {BtnB, BtnA, BtnY, BtnX};
 }
 
 unsigned long long DeckNavigator::CollectButtons() const {
@@ -111,6 +198,12 @@ unsigned long long DeckNavigator::CollectButtons() const {
 void DeckNavigator::Poll() {
     if (!active) {
         return;
+    }
+
+    // Under Auto, notice a pad being plugged in or unplugged without waiting for a restart.
+    if (face_layout == DeckFaceLayout::Auto && ++layout_poll_ticks >= kLayoutPollTicks) {
+        layout_poll_ticks = 0;
+        RefreshFaceLayout();
     }
 
     const auto raw = CollectButtons();
@@ -178,23 +271,26 @@ void DeckNavigator::Poll() {
         LOG_INFO(Input, "Deck menu: bit {} -> {} (npad raw {:#x})", bit, intent, raw);
     };
 
-    if (edge(BtnA)) {
-        fired(BtnA, "Accept");
+    // The four face buttons are looked up by the letter PRINTED on them, so "A" in the hint bar is
+    // always the button the user reaches for. See Face() for why the bits differ per pad.
+    const FaceBits face = Face();
+    if (edge(face.accept)) {
+        fired(face.accept, "Accept");
         emit Accept();
     }
     if (!active) {
         return; // Accept may have booted a game and deactivated us
     }
-    if (edge(BtnB)) {
-        fired(BtnB, "Back");
+    if (edge(face.back)) {
+        fired(face.back, "Back");
         emit Back();
     }
-    if (edge(BtnX)) {
-        fired(BtnX, "PrimaryAction");
+    if (edge(face.primary)) {
+        fired(face.primary, "PrimaryAction");
         emit PrimaryAction();
     }
-    if (edge(BtnY)) {
-        fired(BtnY, "SecondaryAction");
+    if (edge(face.secondary)) {
+        fired(face.secondary, "SecondaryAction");
         emit SecondaryAction();
     }
     if (edge(BtnL)) {
