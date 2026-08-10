@@ -56,6 +56,10 @@ public:
     void Activate();
     void Deactivate();
 
+    /// Report the outcome of a remove-update / remove-DLC request back into the console UI, so the
+    /// answer arrives where the question was asked instead of in a desktop message box.
+    void ShowActionResult(const QString& title, const QString& body);
+
     /// Forward the HOME-suspended title (paused in memory, 0 = none) to the home page's tile badge.
     void SetSuspendedGame(u64 program_id);
 
@@ -85,6 +89,8 @@ signals:
 
 private:
     void ShowPage(QWidget* page);
+    /// Removes a deleted title's row from the model, instead of re-scanning the whole library.
+    void DropGameRow(u64 program_id);
     /// Records the launch in the library history, then hands the boot off to the main window.
     void LaunchGame(QString path, u64 program_id);
     void UpdateHints();

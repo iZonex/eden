@@ -33,6 +33,11 @@ public:
     /// Populate the page for a game before it is shown.
     void SetGame(const DeckGameInfo& info);
 
+    /// Report the outcome of an action in the console's own style. The removal helpers the desktop
+    /// UI uses pop their own message boxes, which land as stray little windows over a full-screen
+    /// shell and cannot be answered with a controller — the shell says it itself instead.
+    void ShowNotice(const QString& title, const QString& body);
+
     bool OnNavigate(Qt::Key key) override;
     bool OnAccept() override;
     bool OnBack() override;
@@ -51,16 +56,24 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
 
 private:
+    /// What is covering the page, if anything. Every destructive action asks first, in here, rather
+    /// than through a desktop dialog.
+    enum class Modal { None, DeleteGame, RemoveUpdate, RemoveDLC, Notice };
+
     QRectF ActionRect(int i) const;
     bool Compact() const;    ///< the page is short (TV overscan inset) — tighten the two lists
     qreal FactPitch() const; ///< row height of the fact table
     void SetCurrent(int index);
     void Activate();
+    void ConfirmModal(); ///< A on a modal: carry out what it asked about, or dismiss a notice
+    void DrawModal(QPainter& painter);
     /// The label/value table under the title: play time, last played, date added, size, format…
     std::vector<std::pair<QString, QString>> Facts() const;
 
     DeckGameInfo game;
 
     int current = 0;
-    bool confirming_delete = false;
+    Modal modal = Modal::None;
+    QString notice_title;
+    QString notice_body;
 };

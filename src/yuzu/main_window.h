@@ -269,6 +269,8 @@ private:
     void EnterBigPicture();
     void ExitBigPicture();
     void OnBigPictureDeleteGame(QString path, u64 program_id, QString title);
+    /// Drops one title's cached patch-version string after its content changed.
+    void ForgetCachedGameMetadata(u64 program_id);
 
     void SetDefaultUIGeometry();
     void RestoreUIState();
