@@ -14,20 +14,22 @@ class HIDCore;
 }
 
 /**
- * Which letters are printed on the pad's face buttons.
+ * How far the printed letters on the pad's face buttons have drifted from the npad bits.
  *
- * SDL maps face buttons by POSITION (south/east/west/north), and the emulator's default binding
- * turns those positions into the Switch's own layout — A on the right, B at the bottom, X on top,
- * Y on the left. That is correct for a Nintendo pad, where the printed letter and the npad bit
- * agree. A Steam Deck prints the Xbox letters on those same positions, so every printed letter is
- * the *other* member of its pair: the button labelled A sits where Nintendo's B is. Nothing is
- * wrong with the binding — the shell just has to know which letters the user is looking at, so
- * that "A" in the hint bar is the button they actually press.
+ * SDL binds face buttons by POSITION (south/east/west/north), and the emulator's default turns
+ * those positions into the Switch's own layout — A right, B bottom, X top, Y left. On a Nintendo
+ * pad the printed letter and the npad bit therefore agree and nothing needs doing.
+ *
+ * A plain Xbox-lettered pad prints the other member of each pair on those positions, so all four
+ * are off. The Steam Deck's built-in controls are a special case: Steam Input already presents them
+ * with Nintendo's A/B arrangement, so only X and Y are left crossed — swapping all four there would
+ * un-fix A/B, which is a bug this shell has already had once.
  */
 enum class DeckFaceLayout {
-    Auto,     ///< Ask SDL what kind of pad is connected (default).
-    Nintendo, ///< A right, B bottom, X top, Y left.
-    Labels,   ///< Xbox/Steam Deck lettering: A bottom, B right, X left, Y top.
+    Auto,     ///< Work it out from the connected pad (default).
+    Nintendo, ///< Nothing crossed: A right, B bottom, X top, Y left.
+    SwapXY,   ///< Steam Deck built-in controls: A/B already right, X and Y crossed.
+    SwapAll,  ///< Plain Xbox-lettered pad: A bottom, B right, X left, Y top.
 };
 
 /**
@@ -124,8 +126,8 @@ private:
     };
     FaceBits Face() const;
 
-    /// Under Auto, asks SDL what is plugged in and updates `use_label_order`. Emits
-    /// FaceLayoutChanged when the answer differs from what we were using.
+    /// Under Auto, asks SDL what is plugged in and updates `resolved`. Emits FaceLayoutChanged when
+    /// the answer differs from what we were using.
     void RefreshFaceLayout();
 
     /// OR-combined raw button state of every connected controller this tick.
@@ -136,9 +138,9 @@ private:
     bool active = false;
 
     DeckFaceLayout face_layout = DeckFaceLayout::Auto;
-    // The resolved answer. Defaults to the Deck's own lettering: this shell exists for the Deck, and
+    // What Auto settled on. Defaults to the Deck's own controls: this shell exists for the Deck, and
     // when no pad is enumerated at all (keyboard-driven desktop testing) the choice is moot anyway.
-    bool use_label_order = true;
+    DeckFaceLayout resolved = DeckFaceLayout::SwapXY;
     int layout_poll_ticks = 0;
 
     // Edge-detection latch: a button fires once on the transition to pressed.
