@@ -521,13 +521,15 @@ private:
 };
 
 namespace {
-/// The three face-lettering options, in the order they appear in the picker.
+/// The face-button options, in the order they appear in the picker.
 int FaceLayoutToIndex(DeckFaceLayout layout) {
     switch (layout) {
     case DeckFaceLayout::Nintendo:
         return 1;
-    case DeckFaceLayout::Labels:
+    case DeckFaceLayout::SwapXY:
         return 2;
+    case DeckFaceLayout::SwapAll:
+        return 3;
     case DeckFaceLayout::Auto:
     default:
         return 0;
@@ -538,7 +540,9 @@ DeckFaceLayout IndexToFaceLayout(int index) {
     case 1:
         return DeckFaceLayout::Nintendo;
     case 2:
-        return DeckFaceLayout::Labels;
+        return DeckFaceLayout::SwapXY;
+    case 3:
+        return DeckFaceLayout::SwapAll;
     default:
         return DeckFaceLayout::Auto;
     }
@@ -681,14 +685,18 @@ void DeckSettingsPage::Build(Core::System& system) {
         if (def.kind == PaneKind::ButtonMapping) {
             face_pane = new OptionPane(
                 {{tr("Automatic"),
-                  tr("Detect the connected controller and use its own lettering.")},
-                 {tr("Nintendo layout"), tr("A on the right, B at the bottom, X on top, Y on the "
-                                            "left — a Switch Pro Controller or Joy-Con.")},
-                 {tr("Xbox / Steam Deck layout"),
-                  tr("A at the bottom, B on the right, X on the left, Y on top — the Deck's own "
-                     "controls and most PC pads.")}},
-                tr("Which letters are printed on your controller's face buttons. This only affects "
-                   "the console menus — button mapping inside games is unchanged."),
+                  tr("Work it out from the controller that is connected.")},
+                 {tr("Nintendo controller"),
+                  tr("Nothing swapped — a Switch Pro Controller or Joy-Con, where the printed "
+                     "letters already match.")},
+                 {tr("Steam Deck built-in"),
+                  tr("Swap X and Y only. Steam Input already puts A and B the right way round on "
+                     "the Deck's own controls.")},
+                 {tr("Other Xbox-style pad"),
+                  tr("Swap A with B and X with Y — a PC controller connected directly, where every "
+                     "printed letter is one place off.")}},
+                tr("Which button does what in these menus, for the letters printed on your "
+                   "controller. Button mapping inside games is not affected."),
                 pane_stack);
             cat.page = face_pane;
             cat.is_face = true;
