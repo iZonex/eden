@@ -56,6 +56,10 @@ private:
         u64 launches = 0;
     };
     std::map<u64, Entry> entries;
+    // Whether a store was already on disk when we started. Without one, every game in the library
+    // is being seen for the first time and "new" would mean nothing; with one, anything missing
+    // from it really did just appear.
+    bool had_store = false;
 };
 
 /**
