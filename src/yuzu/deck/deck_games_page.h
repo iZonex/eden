@@ -65,6 +65,7 @@ public:
 
     /// Re-run the ordering. The sort key (recent activity) lives outside the model, so a launch is
     /// invisible to the proxy's own change tracking — the shell calls this on every re-entry.
+    /// Deferred to the event loop, so it is safe to call from inside a model signal.
     void Resort();
 
 signals:
@@ -93,6 +94,7 @@ private:
         DockCount = 5
     };
 
+    void ResortNow(); ///< the body of Resort(), run once the event loop comes back round
     void SetZone(Zone zone);
     void MoveRail(int delta);
     void SetGridMode(bool on); ///< toggle the rail between a single row and a full wrapping grid
@@ -126,4 +128,5 @@ private:
     bool grid_mode = false; ///< "See all": rail reflowed into a full wrapping grid of every game
     bool launched = false; ///< A game boot was requested; blocks a double-launch until we return.
     bool initial_focus_pending = false; ///< snap focus to the rail once games finish loading
+    bool resort_queued = false; ///< a deferred Resort() is already on the event loop
 };
