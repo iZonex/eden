@@ -112,6 +112,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 
 // Frontend //
 #include "common/steam_deck.h"
+#include "frontend_common/content_manager.h"
 #include "frontend_common/deck_input.h"
 #include "frontend_common/play_time_manager.h"
 #include "yuzu/deck/deck_shell.h"
@@ -1231,11 +1232,27 @@ void MainWindow::InitializeWidgets() {
     // launching with Big Picture disabled.
     connect(deck_shell, &DeckShell::ExitRequested, this, &MainWindow::close);
     connect(deck_shell, &DeckShell::SaveConfigRequested, this, &MainWindow::OnSaveConfig);
+    // Removing installed content from the console shell does NOT go through
+    // OnGameListRemoveInstalledEntry. That path asks with a desktop message box and reports with
+    // two more, which appear as stray little windows over a full-screen shell that no controller
+    // can answer — and it clears the whole game_list cache, so every game in the library loses its
+    // icon over one title's DLC. The console asks and reports for itself; do the work only.
     connect(deck_shell, &DeckShell::RemoveUpdateRequested, this, [this](u64 program_id) {
-        OnGameListRemoveInstalledEntry(program_id, QtCommon::Game::InstalledEntryType::Update);
+        const bool removed =
+            ContentManager::RemoveUpdate(QtCommon::system->GetFileSystemController(), program_id);
+        ForgetCachedGameMetadata(program_id); // only this title's cached version string
+        deck_shell->ShowActionResult(
+            removed ? tr("Update removed") : tr("Nothing to remove"),
+            removed ? tr("The installed update has been removed.")
+                    : tr("This game has no update installed."));
     });
     connect(deck_shell, &DeckShell::RemoveDLCRequested, this, [this](u64 program_id) {
-        OnGameListRemoveInstalledEntry(program_id, QtCommon::Game::InstalledEntryType::AddOnContent);
+        const size_t count = ContentManager::RemoveAllDLC(*QtCommon::system, program_id);
+        ForgetCachedGameMetadata(program_id);
+        deck_shell->ShowActionResult(
+            count > 0 ? tr("DLC removed") : tr("Nothing to remove"),
+            count > 0 ? tr("Removed %1 installed add-on(s).").arg(count)
+                      : tr("This game has no DLC installed."));
     });
     connect(deck_shell, &DeckShell::DeleteGameRequested, this, &MainWindow::OnBigPictureDeleteGame);
 
@@ -1590,6 +1607,14 @@ void MainWindow::ExitBigPicture() {
             game_list->show();
         }
     }
+}
+
+void MainWindow::ForgetCachedGameMetadata(u64 program_id) {
+    // The scan caches a title's icon, name and patch version under its title id. After content is
+    // added or removed only the version string is stale, so drop that one file and leave the icon
+    // and name alone — re-extracting those for the whole library is what made every game go blank.
+    const auto dir = Common::FS::GetEdenPath(Common::FS::EdenPath::CacheDir) / "game_list";
+    Common::FS::RemoveFile(dir / fmt::format("{:016X}.pv.txt", program_id));
 }
 
 void MainWindow::OnBigPictureDeleteGame(QString path, u64 program_id, QString title) {
