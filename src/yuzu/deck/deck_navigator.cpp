@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <utility>
 #include <QTimer>
@@ -33,19 +34,26 @@ constexpr int kAccelerateAfterTicks = 70;
 // Controller in mid-session flips the lettering without a restart.
 constexpr int kLayoutPollTicks = 60; // ~1 s
 
-/// True when EVERY connected pad is Nintendo-lettered (A right, B bottom, X top, Y left). With no
-/// pad enumerated the caller keeps whatever it had — a keyboard-driven session has no lettering.
-///
-/// "All", not "any": on a Deck with a Pro Controller also plugged in, letting the Pro Controller
-/// decide would flip the lettering for the Deck's own built-in controls, which is the pad actually
-/// in the user's hands most of the time. Erring towards the built-in keeps the common case right,
-/// and the Change Button Mapping screen is there for anyone who wants the other answer.
-bool AllNintendoPads(bool& any_pad) {
+/// USB vendor id Valve uses for the Steam Input virtual pad that fronts the Deck's built-in
+/// controls. That pad is the one case where A/B arrive already un-crossed (see DeckFaceLayout).
+constexpr Uint16 kValveVendor = 0x28de;
+
+/// Works out which face-button crossing the connected hardware needs. Returns nullopt when nothing
+/// is enumerated, so the caller keeps whatever it had — a keyboard session has no lettering.
+std::optional<DeckFaceLayout> DetectFaceLayout() {
     int count = 0;
     SDL_JoystickID* const ids = SDL_GetGamepads(&count);
-    any_pad = ids != nullptr && count > 0;
-    bool nintendo = any_pad;
+    if (ids == nullptr || count == 0) {
+        SDL_free(ids);
+        return std::nullopt;
+    }
+
+    bool valve = false;
+    bool all_nintendo = true;
     for (int i = 0; i < count; ++i) {
+        if (SDL_GetGamepadVendorForID(ids[i]) == kValveVendor) {
+            valve = true;
+        }
         // GetReal* rather than GetGamepadTypeForID: the plain call honours the type-override hints
         // (which the emulator sets so guests see a Switch pad), and would answer "Nintendo" for
         // every device. We want the physical hardware's lettering, not what the guest is told.
@@ -56,12 +64,18 @@ bool AllNintendoPads(bool& any_pad) {
         case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
             break;
         default:
-            nintendo = false;
+            all_nintendo = false;
             break;
         }
     }
     SDL_free(ids);
-    return nintendo;
+
+    // The Deck's own controls win when they are present: that is the pad in the user's hands, and a
+    // Pro Controller plugged in beside it should not change what the built-in buttons do.
+    if (valve) {
+        return DeckFaceLayout::SwapXY;
+    }
+    return all_nintendo ? DeckFaceLayout::Nintendo : DeckFaceLayout::SwapAll;
 }
 } // namespace
 
@@ -113,47 +127,44 @@ void DeckNavigator::SetFaceLayout(DeckFaceLayout layout) {
         return;
     }
     face_layout = layout;
-    const bool was = use_label_order;
     RefreshFaceLayout();
-    if (use_label_order == was) {
-        emit FaceLayoutChanged(); // the resolved order didn't move, but the hint bar may still care
-    }
 }
 
 void DeckNavigator::RefreshFaceLayout() {
-    const bool was = use_label_order;
-    switch (face_layout) {
-    case DeckFaceLayout::Nintendo:
-        use_label_order = false;
-        break;
-    case DeckFaceLayout::Labels:
-        use_label_order = true;
-        break;
-    case DeckFaceLayout::Auto: {
-        bool any_pad = false;
-        const bool nintendo = AllNintendoPads(any_pad);
-        if (any_pad) {
-            use_label_order = !nintendo;
+    const DeckFaceLayout was = resolved;
+    if (face_layout == DeckFaceLayout::Auto) {
+        if (const auto detected = DetectFaceLayout()) {
+            resolved = *detected;
         }
-        break;
+    } else {
+        resolved = face_layout;
     }
-    }
-    if (use_label_order != was) {
-        LOG_INFO(Input, "Deck menu: face lettering is now {}",
-                 use_label_order ? "Xbox/Deck (A bottom)" : "Nintendo (A right)");
+    if (resolved != was) {
+        LOG_INFO(Input, "Deck menu: face buttons resolved to {}",
+                 resolved == DeckFaceLayout::Nintendo  ? "Nintendo (nothing crossed)"
+                 : resolved == DeckFaceLayout::SwapXY  ? "Steam Deck (X/Y crossed)"
+                                                       : "Xbox pad (all four crossed)");
         emit FaceLayoutChanged();
     }
 }
 
 DeckNavigator::FaceBits DeckNavigator::Face() const {
-    if (!use_label_order) {
-        // Nintendo-lettered pad: the printed letter and the npad bit already agree.
+    switch (resolved) {
+    case DeckFaceLayout::SwapXY:
+        // The Deck's built-in controls. Steam Input hands them over with Nintendo's A/B already in
+        // place, so those two are right as they are; only the printed X and Y sit on each other's
+        // npad bit. Crossing all four here would put A/B back the wrong way round.
+        return {BtnA, BtnB, BtnY, BtnX};
+    case DeckFaceLayout::SwapAll:
+        // A plain Xbox-lettered pad, straight through SDL. SDL binds by position and the emulator's
+        // default turns those positions into the Switch layout, so every printed letter lands on
+        // the OTHER bit of its pair: A(bottom)->NpadB, B(right)->NpadA, X(left)->NpadY, Y(top)->NpadX.
+        return {BtnB, BtnA, BtnY, BtnX};
+    case DeckFaceLayout::Nintendo:
+    case DeckFaceLayout::Auto:
+    default:
         return {BtnA, BtnB, BtnX, BtnY};
     }
-    // Xbox-lettered pad (Steam Deck). SDL binds by position and the emulator's default turns those
-    // positions into the Switch layout, so each printed letter lands on the OTHER bit of its pair:
-    // A(bottom)->NpadB, B(right)->NpadA, X(left)->NpadY, Y(top)->NpadX.
-    return {BtnB, BtnA, BtnY, BtnX};
 }
 
 unsigned long long DeckNavigator::CollectButtons() const {
