@@ -162,6 +162,11 @@ ENUM(GpuLogLevel, Off, Errors, Standard, Verbose, All)
 ENUM(GameListMode, TreeView, GridView, CarouselView);
 ENUM(SpeedMode, Standard, Turbo, Slow);
 
+// Which letters the console shell should read the pad's face buttons as. SDL binds them by
+// position, so what a pad prints on those positions decides how far the printed letter and the
+// button's meaning have drifted apart. Menus only — game input is never affected.
+ENUM(DeckFaceLayout, Auto, Nintendo, SwapXY, SwapAll);
+
 template <typename Type>
 inline std::string_view CanonicalizeEnum(Type id) {
     const auto group = EnumMetadata<Type>::Canonicalizations();

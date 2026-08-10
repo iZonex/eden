@@ -758,6 +758,11 @@ struct Values {
     SwitchableSetting<bool> enable_accurate_vibrations{linkage, false, "enable_accurate_vibrations",
                                                        Category::Controls};
 
+    // Which letters the console shell reads the face buttons as. Menus only; the pad's bindings,
+    // and therefore input inside games, are untouched. See Settings::DeckFaceLayout.
+    Setting<DeckFaceLayout> deck_face_layout{linkage, DeckFaceLayout::Auto, "deck_face_layout",
+                                             Category::Controls};
+
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};
     Setting<std::string> udp_input_servers{linkage, "127.0.0.1:26760", "udp_input_servers",
                                            Category::Controls};
