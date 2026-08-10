@@ -14,6 +14,23 @@ class HIDCore;
 }
 
 /**
+ * Which letters are printed on the pad's face buttons.
+ *
+ * SDL maps face buttons by POSITION (south/east/west/north), and the emulator's default binding
+ * turns those positions into the Switch's own layout — A on the right, B at the bottom, X on top,
+ * Y on the left. That is correct for a Nintendo pad, where the printed letter and the npad bit
+ * agree. A Steam Deck prints the Xbox letters on those same positions, so every printed letter is
+ * the *other* member of its pair: the button labelled A sits where Nintendo's B is. Nothing is
+ * wrong with the binding — the shell just has to know which letters the user is looking at, so
+ * that "A" in the hint bar is the button they actually press.
+ */
+enum class DeckFaceLayout {
+    Auto,     ///< Ask SDL what kind of pad is connected (default).
+    Nintendo, ///< A right, B bottom, X top, Y left.
+    Labels,   ///< Xbox/Steam Deck lettering: A bottom, B right, X left, Y top.
+};
+
+/**
  * Reads every connected controller and turns it into high-level, console-style UI intents for
  * the Big Picture / Steam Deck front-end.
  *
@@ -41,17 +58,26 @@ public:
         return active;
     }
 
+    /// Which lettering the face buttons are read as. Affects ONLY this menu navigator — the pad's
+    /// bindings, and therefore input inside games, are untouched.
+    void SetFaceLayout(DeckFaceLayout layout);
+    DeckFaceLayout FaceLayout() const {
+        return face_layout;
+    }
+
 signals:
     /// A directional intent (Up/Down/Left/Right as Qt::Key_*), including autorepeat while held.
     void Navigate(Qt::Key key);
-    /// A (South) — confirm / activate.
+    /// The button printed "A" — confirm / activate.
     void Accept();
-    /// B (East) — cancel / go back.
+    /// The button printed "B" — cancel / go back.
     void Back();
-    /// X (West) — primary context action (open game options, etc.).
+    /// The button printed "X" — primary context action (sort, add games, …).
     void PrimaryAction();
-    /// Y (North) — secondary context action (toggle favorite, etc.).
+    /// The button printed "Y" — secondary context action (filter, rename, …).
     void SecondaryAction();
+    /// The detected face lettering changed (a pad was plugged in or removed under Auto).
+    void FaceLayoutChanged();
     /// L1 / R1 — switch between top-level sections.
     void TabPrev();
     void TabNext();
@@ -89,12 +115,31 @@ private:
         NumTrackedButtons = 24,
     };
 
+    /// The npad bits behind the four printed letters, for the lettering currently in effect.
+    struct FaceBits {
+        int accept;    ///< "A"
+        int back;      ///< "B"
+        int primary;   ///< "X"
+        int secondary; ///< "Y"
+    };
+    FaceBits Face() const;
+
+    /// Under Auto, asks SDL what is plugged in and updates `use_label_order`. Emits
+    /// FaceLayoutChanged when the answer differs from what we were using.
+    void RefreshFaceLayout();
+
     /// OR-combined raw button state of every connected controller this tick.
     unsigned long long CollectButtons() const;
 
     Core::HID::HIDCore& hid_core;
     QTimer* timer = nullptr;
     bool active = false;
+
+    DeckFaceLayout face_layout = DeckFaceLayout::Auto;
+    // The resolved answer. Defaults to the Deck's own lettering: this shell exists for the Deck, and
+    // when no pad is enumerated at all (keyboard-driven desktop testing) the choice is moot anyway.
+    bool use_label_order = true;
+    int layout_poll_ticks = 0;
 
     // Edge-detection latch: a button fires once on the transition to pressed.
     std::array<bool, NumTrackedButtons> pressed{};

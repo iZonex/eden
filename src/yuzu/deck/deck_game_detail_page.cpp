@@ -2,31 +2,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <QDateTime>
 #include <QLinearGradient>
+#include <QLocale>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPainter>
 #include <QPainterPath>
 
+#include <fmt/format.h>
+
+#include "frontend_common/play_time_manager.h"
 #include "yuzu/deck/deck_game_detail_page.h"
 #include "yuzu/deck/deck_theme.h"
 
 DeckGameDetailPage::DeckGameDetailPage(QWidget* parent) : DeckPage(parent) {}
 
-void DeckGameDetailPage::SetGame(const QString& path_, u64 program_id_, const QString& title_,
-                                 const QPixmap& art_, const QString& meta_, bool favorited_) {
-    path = path_;
-    program_id = program_id_;
-    title = title_;
-    art = art_;
-    meta = meta_;
-    favorited = favorited_;
+void DeckGameDetailPage::SetGame(const DeckGameInfo& info) {
+    game = info;
     current = 0;
     confirming_delete = false;
     update();
 }
 
 namespace {
+/// "today" / "yesterday" / "3 days ago" / a date, so a timestamp reads at a glance.
+QString RelativeDate(s64 seconds) {
+    if (seconds <= 0) {
+        return QObject::tr("Never");
+    }
+    const QDateTime when = QDateTime::fromSecsSinceEpoch(seconds);
+    const qint64 days = when.date().daysTo(QDate::currentDate());
+    if (days <= 0) {
+        return QObject::tr("Today");
+    }
+    if (days == 1) {
+        return QObject::tr("Yesterday");
+    }
+    if (days < 30) {
+        return QObject::tr("%n day(s) ago", nullptr, static_cast<int>(days));
+    }
+    return QLocale().toString(when.date(), QLocale::ShortFormat);
+}
+
 QString ActionLabel(int i, bool favorited) {
     switch (i) {
     case DeckGameDetailPage::Play:
@@ -45,11 +63,54 @@ QString ActionLabel(int i, bool favorited) {
 }
 } // namespace
 
+std::vector<std::pair<QString, QString>> DeckGameDetailPage::Facts() const {
+    std::vector<std::pair<QString, QString>> facts;
+    facts.emplace_back(tr("Play time"),
+                       game.play_time_seconds > 0
+                           ? QString::fromStdString(PlayTime::PlayTimeManager::GetReadablePlayTime(
+                                 game.play_time_seconds))
+                           : tr("Never played"));
+    facts.emplace_back(tr("Last played"), RelativeDate(game.last_played));
+    facts.emplace_back(tr("Added"), RelativeDate(game.first_seen));
+    if (game.launches > 0) {
+        facts.emplace_back(tr("Times opened"), QString::number(game.launches));
+    }
+    if (!game.size_text.isEmpty()) {
+        facts.emplace_back(tr("Size"), game.size_text);
+    }
+    if (!game.file_type.isEmpty()) {
+        facts.emplace_back(tr("Format"), game.file_type);
+    }
+    facts.emplace_back(tr("Version"),
+                       game.version.isEmpty() ? QStringLiteral("1.0.0") : game.version);
+    if (game.program_id != 0) {
+        facts.emplace_back(tr("Title ID"),
+                           QString::fromStdString(fmt::format("{:016X}", game.program_id)));
+    }
+    return facts;
+}
+
+bool DeckGameDetailPage::Compact() const {
+    // A TV-docked shell insets the page for overscan (see DeckShell::resizeEvent), so the same
+    // layout that fits the Deck's 800px panel has ~130px less to work with there. Tighten up rather
+    // than letting the last two actions fall off the bottom.
+    return height() < 720;
+}
+
+qreal DeckGameDetailPage::FactPitch() const {
+    return Compact() ? 22.0 : 26.0;
+}
+
 QRectF DeckGameDetailPage::ActionRect(int i) const {
     const qreal x = 470;
     const qreal w = std::min<qreal>(520, width() - x - 60);
-    const qreal y = 250 + i * 66;
-    return {x, y, w, 58};
+    const qreal pitch = Compact() ? 48.0 : 58.0;
+    const qreal h = pitch - 6;
+    // Below the fact table, and clear of the bottom: five actions at this pitch end at 700 on the
+    // Deck's 800px panel. On a shorter page they slide up to whatever room is left.
+    const qreal facts_bottom = 180 + 8 * FactPitch() + 16;
+    const qreal y = std::max(facts_bottom, height() - 12 - ActionCount * pitch) + i * pitch;
+    return {x, y, w, h};
 }
 
 void DeckGameDetailPage::SetCurrent(int index) {
@@ -82,18 +143,18 @@ bool DeckGameDetailPage::OnNavigate(Qt::Key key) {
 void DeckGameDetailPage::Activate() {
     switch (current) {
     case Play:
-        emit PlayRequested(path, program_id);
+        emit PlayRequested(game.path, game.program_id);
         break;
     case Favorite:
-        favorited = !favorited;
-        emit FavoriteToggled(program_id);
+        game.favorited = !game.favorited;
+        emit FavoriteToggled(game.program_id);
         update();
         break;
     case RemoveUpdate:
-        emit RemoveUpdateRequested(program_id);
+        emit RemoveUpdateRequested(game.program_id);
         break;
     case RemoveDLC:
-        emit RemoveDLCRequested(program_id);
+        emit RemoveDLCRequested(game.program_id);
         break;
     case Delete:
         confirming_delete = true;
@@ -109,7 +170,7 @@ bool DeckGameDetailPage::OnAccept() {
     if (confirming_delete) {
         confirming_delete = false;
         emit HintsChanged();
-        emit DeleteRequested(path, program_id, title);
+        emit DeleteRequested(game.path, game.program_id, game.title);
         return true;
     }
     Activate();
@@ -146,14 +207,15 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
     p.fillRect(rect(), DeckTheme::kBackground);
 
     // Box art.
-    const QRectF art_rect(60, 100, 360, 360);
+    const QRectF art_rect(60, 84, 360, 360);
     QPainterPath clip;
     clip.addRoundedRect(art_rect, 18, 18);
     p.save();
     p.setClipPath(clip);
-    if (!art.isNull()) {
-        const QPixmap scaled = art.scaled(art_rect.size().toSize(), Qt::KeepAspectRatioByExpanding,
-                                          Qt::SmoothTransformation);
+    if (!game.art.isNull()) {
+        const QPixmap scaled = game.art.scaled(art_rect.size().toSize(),
+                                               Qt::KeepAspectRatioByExpanding,
+                                               Qt::SmoothTransformation);
         p.drawPixmap(art_rect.topLeft() -
                          QPointF((scaled.width() - art_rect.width()) / 2.0,
                                  (scaled.height() - art_rect.height()) / 2.0),
@@ -174,20 +236,41 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
     p.setBrush(Qt::NoBrush);
     p.drawPath(clip);
 
-    // Title + meta.
+    // Title.
+    const qreal col_x = 470;
+    const qreal col_w = width() - col_x - 60;
     QFont title_font = font();
     title_font.setPixelSize(38);
     title_font.setBold(false);
     p.setFont(title_font);
     p.setPen(DeckTheme::kText);
-    p.drawText(QRectF(470, 108, width() - 470 - 60, 96),
-               Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, title);
+    p.drawText(QRectF(col_x, 84, col_w, 88), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+               game.title);
 
-    QFont meta_font = font();
-    meta_font.setPixelSize(18);
-    p.setFont(meta_font);
-    p.setPen(DeckTheme::kTextDim);
-    p.drawText(QRectF(470, 205, width() - 470 - 60, 40), Qt::AlignLeft, meta);
+    // Fact table: label on the left, value right-aligned, hairline between rows — the same shape as
+    // the console's own information screens. Replaces the raw tooltip string this page used to
+    // print, which said only "Play Time" and "Version" and ran off the edge on a long title.
+    const auto facts = Facts();
+    QFont label_font = font();
+    label_font.setPixelSize(17);
+    QFont value_font = font();
+    value_font.setPixelSize(18);
+    qreal y = 180;
+    const qreal row_h = FactPitch();
+    for (const auto& [label, value] : facts) {
+        p.setFont(label_font);
+        p.setPen(DeckTheme::kTextDim);
+        p.drawText(QRectF(col_x, y, col_w * 0.55, row_h), Qt::AlignLeft | Qt::AlignVCenter, label);
+        p.setFont(value_font);
+        p.setPen(DeckTheme::kText);
+        p.drawText(QRectF(col_x + col_w * 0.45, y, col_w * 0.55, row_h),
+                   Qt::AlignRight | Qt::AlignVCenter, value);
+        QColor rule = DeckTheme::kText;
+        rule.setAlpha(28);
+        p.setPen(QPen(rule, 1));
+        p.drawLine(QPointF(col_x, y + row_h), QPointF(col_x + col_w, y + row_h));
+        y += row_h;
+    }
 
     // Action list.
     for (int i = 0; i < ActionCount; ++i) {
@@ -216,7 +299,7 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
         const bool destructive = (i == Delete);
         p.setPen(destructive ? QColor(0xd9, 0x53, 0x4f) : DeckTheme::kText);
         p.drawText(r.adjusted(22, 0, -16, 0), Qt::AlignVCenter | Qt::AlignLeft,
-                   ActionLabel(i, favorited));
+                   ActionLabel(i, game.favorited));
     }
 
     // Delete confirmation overlay.
@@ -233,7 +316,7 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
         p.setFont(hf);
         p.setPen(DeckTheme::kText);
         p.drawText(box.adjusted(40, 40, -40, 0), Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap,
-                   QObject::tr("Delete \"%1\"?").arg(title));
+                   QObject::tr("Delete \"%1\"?").arg(game.title));
 
         QFont bf = font();
         bf.setPixelSize(18);
