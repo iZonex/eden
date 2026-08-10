@@ -8,6 +8,7 @@
 #include <vector>
 #include <QString>
 
+#include "yuzu/deck/deck_navigator.h"
 #include "yuzu/deck/deck_page.h"
 
 namespace Core {
@@ -55,10 +56,15 @@ public:
     /// Writes every row's value back to the settings and asks for a config save.
     void Apply();
 
+    /// Applies the saved face lettering so the picker opens on the right option.
+    void SetFaceLayout(DeckFaceLayout layout);
+
 signals:
     void SaveConfigRequested();
     /// The user picked a console theme in the Themes section (true = Basic White / light).
     void ThemeChangeRequested(bool light);
+    /// The user picked a face-button lettering in the Change Button Mapping section.
+    void FaceLayoutChangeRequested(DeckFaceLayout layout);
 
 private:
     enum class Zone { Sidebar, Rows };
@@ -68,7 +74,8 @@ private:
         QWidget* page = nullptr;      ///< Right-pane page (header + scroll of rows).
         QLabel* header = nullptr;     ///< the page's title label (re-styled on theme change)
         std::vector<DeckSettingRow*> rows;
-        bool is_theme = false; ///< the Themes section (a two-option picker, not settings rows)
+        bool is_theme = false;  ///< the Themes section (a two-option picker, not settings rows)
+        bool is_face = false;   ///< the Change Button Mapping section (a three-option picker)
     };
 
     void Build(Core::System& system);
@@ -92,7 +99,8 @@ private:
     // crashed the settings screen the moment anything was changed.
     std::unique_ptr<ConfigurationShared::Builder> builder;
     std::vector<std::function<void(bool)>> apply_funcs;
-    class ThemePane* theme_pane = nullptr; ///< the Themes section's picker widget
+    class ThemePane* theme_pane = nullptr;   ///< the Themes section's picker widget
+    class OptionPane* face_pane = nullptr;   ///< the Change Button Mapping picker
 
     Zone zone = Zone::Sidebar;
     int current_category = 0;

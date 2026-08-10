@@ -8,6 +8,7 @@
 
 #include "common/common_types.h"
 #include "core/file_sys/vfs/vfs_types.h"
+#include "yuzu/deck/deck_library_stats.h"
 
 namespace Core {
 class System;
@@ -84,6 +85,8 @@ signals:
 
 private:
     void ShowPage(QWidget* page);
+    /// Records the launch in the library history, then hands the boot off to the main window.
+    void LaunchGame(QString path, u64 program_id);
     void UpdateHints();
     void ConnectNavigator();
     void ApplyTheme(bool light); ///< swap Basic White/Black, restyle the whole tree, and persist.
@@ -96,12 +99,16 @@ private:
     void HandlePageUp();
     void HandlePageDown();
     void HandleStart();
+    void HandleSelect();
 
     DeckPage* CurrentPage() const;
 
     Core::System& system;
 
     GameListModel* model = nullptr;
+    // When each title was first seen and last launched — the library's ordering key. Owned here so
+    // the pages that sort by it and the launch path that stamps it share one instance.
+    DeckLibraryStats stats;
     bool populated = false;
 
     DeckNavigator* navigator = nullptr;
@@ -116,4 +123,8 @@ private:
     DeckUsersPage* users_page = nullptr;
     DeckAlbumPage* album_page = nullptr;
     DeckAllSoftwarePage* all_software_page = nullptr;
+    // Where the detail page was opened from, so B goes back there instead of always dropping to the
+    // home screen — otherwise opening a game's options from All Software costs you your place in a
+    // library several screens long.
+    QWidget* detail_origin = nullptr;
 };

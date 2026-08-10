@@ -3,12 +3,18 @@
 
 #pragma once
 
+#include <utility>
 #include <vector>
 #include <QPixmap>
 #include <QString>
 
 #include "common/common_types.h"
+#include "yuzu/deck/deck_library_stats.h"
 #include "yuzu/deck/deck_page.h"
+
+namespace PlayTime {
+class PlayTimeManager;
+}
 
 /**
  * The game detail screen, opened from the library (A on a tile). Shows the box art, title and
@@ -25,8 +31,7 @@ public:
     explicit DeckGameDetailPage(QWidget* parent = nullptr);
 
     /// Populate the page for a game before it is shown.
-    void SetGame(const QString& path, u64 program_id, const QString& title, const QPixmap& art,
-                 const QString& meta, bool favorited);
+    void SetGame(const DeckGameInfo& info);
 
     bool OnNavigate(Qt::Key key) override;
     bool OnAccept() override;
@@ -47,15 +52,14 @@ protected:
 
 private:
     QRectF ActionRect(int i) const;
+    bool Compact() const;    ///< the page is short (TV overscan inset) — tighten the two lists
+    qreal FactPitch() const; ///< row height of the fact table
     void SetCurrent(int index);
     void Activate();
+    /// The label/value table under the title: play time, last played, date added, size, format…
+    std::vector<std::pair<QString, QString>> Facts() const;
 
-    QString path;
-    u64 program_id = 0;
-    QString title;
-    QString meta;
-    QPixmap art;
-    bool favorited = false;
+    DeckGameInfo game;
 
     int current = 0;
     bool confirming_delete = false;
