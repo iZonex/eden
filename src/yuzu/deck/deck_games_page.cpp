@@ -757,14 +757,36 @@ QAbstractItemModel* DeckGamesPage::LibraryModel() const {
 }
 
 void DeckGamesPage::Resort() {
+    if (filter == nullptr || resort_queued) {
+        return;
+    }
+    // Never re-sort inline. One caller is the game list's PopulatingCompleted, which the model
+    // emits from DonePopulating — directly after IsEmpty() has removed rows from it, and while the
+    // desktop list is still handling the same signal. Tearing down and rebuilding the mapping of a
+    // proxy chain from inside that emission crashed in QConcatenateTablesProxyModel, which sits on
+    // top of the rail. One turn of the event loop lets the model settle first.
+    resort_queued = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+            resort_queued = false;
+            ResortNow();
+        },
+        Qt::QueuedConnection);
+}
+
+void DeckGamesPage::ResortNow() {
     if (filter == nullptr) {
         return;
     }
     // The ordering key (recent activity) is not model data, so nothing in the proxy's own change
-    // tracking notices a launch. Invalidating re-runs the comparator over every row — and clears
-    // the view's current index on the way, so put the cursor back on the same game afterwards.
+    // tracking notices a launch. Re-sorting drops the view's current index on the way, so put the
+    // cursor back on the same game afterwards.
     const u64 keep = CurrentGameIndex().data(GameListItemPath::ProgramIdRole).toULongLong();
-    filter->invalidate();
+    // sort(-1) then sort(0) rather than invalidate(): this only re-runs the comparator and emits a
+    // layout change, where invalidate() also re-runs the row filter and can turn into a full model
+    // reset — much heavier for everything mapped on top of this proxy.
+    filter->sort(-1);
     filter->sort(0);
     // The rail's cap sits on top and selects rows by POSITION, so which twelve games it keeps only
     // changes if it re-runs its own filter over the new order.
