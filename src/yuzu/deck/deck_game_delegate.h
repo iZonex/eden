@@ -6,6 +6,8 @@
 #include <QStyledItemDelegate>
 #include <Qt>
 
+class DeckLibraryStats;
+
 /// Marks the trailing round "All Software" cell in the game rail (shared by the page's rail model and
 /// the delegate). A high UserRole the game-list model never returns, so real game rows read false.
 inline constexpr int DeckAllSoftwareRole = Qt::UserRole + 777;
@@ -59,6 +61,12 @@ public:
         suspended_id = id;
     }
 
+    /// Library history, so a title added recently and never opened can wear a "NEW" badge — the one
+    /// piece of metadata the console does put on a tile.
+    void SetStats(const DeckLibraryStats* s) {
+        stats = s;
+    }
+
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
@@ -68,6 +76,7 @@ private:
     bool rail_active = true; ///< false → dim the selected tile (focus is on the dock/avatar)
     int lead_indent = 0;
     quint64 suspended_id = 0;
+    const DeckLibraryStats* stats = nullptr;
     int card_w = 0; ///< 0 = use DeckTheme::kGridCardWidth
     int card_h = 0; ///< 0 = use DeckTheme::kGridCardHeight
 };

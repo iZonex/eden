@@ -38,7 +38,10 @@ namespace {
 void ForceDarkBackground(QWidget* root) {
     root->setAutoFillBackground(true);
     for (QWidget* child : root->findChildren<QWidget*>()) {
-        child->setAutoFillBackground(true);
+        // Overlays paint their own translucency — a dim wash over the page they cover, a rounded
+        // bubble with a tail. Filling their whole rect with the opaque window colour first erases
+        // exactly that: the wash becomes a takeover and the bubble grows square corners.
+        child->setAutoFillBackground(!child->property("deckTranslucent").toBool());
     }
 }
 
@@ -73,13 +76,14 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     root_layout->setSpacing(0);
 
     stack = new QStackedWidget(this);
-    games_page = new DeckGamesPage(model, system, play_time_manager, stack);
+    games_page = new DeckGamesPage(model, system, play_time_manager, stats, stack);
     detail_page = new DeckGameDetailPage(stack);
     controllers_page = new DeckControllersPage(system.HIDCore(), input_subsystem, stack);
     settings_page = new DeckSettingsPage(system, stack);
     users_page = new DeckUsersPage(system, stack);
     album_page = new DeckAlbumPage(stack);
-    all_software_page = new DeckAllSoftwarePage(games_page->LibraryModel(), stack);
+    all_software_page =
+        new DeckAllSoftwarePage(games_page->LibraryModel(), stats, play_time_manager, stack);
     stack->addWidget(games_page);
     stack->addWidget(detail_page);
     stack->addWidget(controllers_page);
@@ -95,13 +99,13 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(games_page, &DeckGamesPage::GamePlayRequested, this,
             [this](QString path, u64 program_id) {
                 settings_page->Apply();
-                emit GameChosen(std::move(path), program_id);
+                LaunchGame(std::move(path), program_id);
             });
-    connect(games_page, &DeckGamesPage::GameActivated, this,
-            [this](QString path, u64 program_id, QString title, QPixmap art, QString meta, bool fav) {
-                detail_page->SetGame(path, program_id, title, art, meta, fav);
-                ShowPage(detail_page);
-            });
+    connect(games_page, &DeckGamesPage::GameActivated, this, [this](DeckGameInfo info) {
+        detail_origin = games_page;
+        detail_page->SetGame(info);
+        ShowPage(detail_page);
+    });
     connect(games_page, &DeckGamesPage::FavoriteToggled, this, [this](u64 program_id) {
         model->ToggleFavorite(program_id);
         emit SaveConfigRequested();
@@ -110,7 +114,7 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(detail_page, &DeckGameDetailPage::PlayRequested, this,
             [this](QString path, u64 program_id) {
                 settings_page->Apply();
-                emit GameChosen(std::move(path), program_id);
+                LaunchGame(std::move(path), program_id);
             });
     connect(detail_page, &DeckGameDetailPage::FavoriteToggled, this, [this](u64 program_id) {
         model->ToggleFavorite(program_id);
@@ -123,8 +127,15 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(detail_page, &DeckGameDetailPage::DeleteRequested, this,
             [this](QString path, u64 program_id, QString title) {
                 emit DeleteGameRequested(std::move(path), program_id, std::move(title));
-                model->RefreshGameDirectory(); // the game is gone — re-scan and return home
-                GoHome();
+                model->RefreshGameDirectory(); // the game is gone — re-scan
+                // Back to whichever library screen the options were opened from. Dropping to the
+                // home screen after a delete meant losing your place in All Software every time.
+                QWidget* const origin = detail_origin != nullptr ? detail_origin : games_page;
+                detail_origin = nullptr;
+                if (origin == all_software_page) {
+                    all_software_page->RestoreOnReturn();
+                }
+                ShowPage(origin);
             });
     connect(detail_page, &DeckPage::HintsChanged, this, &DeckShell::UpdateHints);
     connect(games_page, &DeckGamesPage::OpenControllers, this,
@@ -138,7 +149,13 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(games_page, &DeckGamesPage::OpenAllSoftware, this,
             [this] { ShowPage(all_software_page); });
     connect(all_software_page, &DeckAllSoftwarePage::GamePlayRequested, this,
-            [this](QString path, u64 program_id) { emit GameChosen(std::move(path), program_id); });
+            [this](QString path, u64 program_id) { LaunchGame(std::move(path), program_id); });
+    connect(all_software_page, &DeckAllSoftwarePage::GameOptionsRequested, this,
+            [this](DeckGameInfo info) {
+                detail_origin = all_software_page;
+                detail_page->SetGame(info);
+                ShowPage(detail_page);
+            });
     connect(all_software_page, &DeckPage::HintsChanged, this, &DeckShell::UpdateHints);
     connect(games_page, &DeckGamesPage::SleepRequested, this, [] {
         // Switch HOME Sleep — put the Deck itself to sleep (systemd handles the suspend on SteamOS).
@@ -163,13 +180,36 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     navigator = new DeckNavigator(system.HIDCore(), this);
     ConnectNavigator();
 
+    // Which letters the pad prints on its face buttons (see DeckFaceLayout). Saved alongside the
+    // theme in the same per-console QSettings store.
+    {
+        QSettings settings(QStringLiteral("Eden"), QStringLiteral("deck"));
+        const auto layout = static_cast<DeckFaceLayout>(
+            settings.value(QStringLiteral("face_layout"), 0).toInt());
+        navigator->SetFaceLayout(layout);
+        settings_page->SetFaceLayout(layout);
+    }
+    connect(settings_page, &DeckSettingsPage::FaceLayoutChangeRequested, this,
+            [this](DeckFaceLayout layout) {
+                navigator->SetFaceLayout(layout);
+                QSettings settings(QStringLiteral("Eden"), QStringLiteral("deck"));
+                settings.setValue(QStringLiteral("face_layout"), static_cast<int>(layout));
+                UpdateHints();
+            });
+
     stack->setCurrentWidget(games_page);
 
     // Guarantee a dark ground under every widget now that the whole tree exists (see helper).
     ForceDarkBackground(this);
 }
 
-DeckShell::~DeckShell() = default;
+DeckShell::~DeckShell() {
+    // The pages, their sorting proxies and their delegates all hold a reference into `stats`, and
+    // QObject destroys the child widget tree in ~QWidget — which runs AFTER this class's own
+    // members. Take the tree down here, while what it points at is still alive.
+    delete stack;
+    stack = nullptr;
+}
 
 void DeckShell::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
@@ -209,7 +249,16 @@ void DeckShell::ShowPage(QWidget* page) {
 }
 
 void DeckShell::GoHome() {
+    detail_origin = nullptr;
     ShowPage(games_page);
+}
+
+void DeckShell::LaunchGame(QString path, u64 program_id) {
+    // Stamp the launch here rather than relying on the core's launch cache: that one lives in the
+    // cache dir (wipeable) and loads once per process behind a static flag, so a launch we had just
+    // triggered stayed invisible to the library's ordering until the next restart.
+    stats.NoteLaunched(program_id);
+    emit GameChosen(std::move(path), program_id);
 }
 
 void DeckShell::UpdateHints() {
@@ -321,7 +370,19 @@ void DeckShell::ConnectNavigator() {
     connect(navigator, &DeckNavigator::SecondaryAction, this, &DeckShell::HandleSecondary);
     connect(navigator, &DeckNavigator::PageUp, this, &DeckShell::HandlePageUp);
     connect(navigator, &DeckNavigator::PageDown, this, &DeckShell::HandlePageDown);
+    // L / R. These were emitted but never connected, so the "L/R  Software / Groups" hint and the
+    // L/R glyphs in the All Software header were lies — the tabs only answered to ZL/ZR.
+    connect(navigator, &DeckNavigator::TabPrev, this, &DeckShell::HandlePageUp);
+    connect(navigator, &DeckNavigator::TabNext, this, &DeckShell::HandlePageDown);
     connect(navigator, &DeckNavigator::StartPressed, this, &DeckShell::HandleStart);
+    connect(navigator, &DeckNavigator::SelectPressed, this, &DeckShell::HandleSelect);
+    connect(navigator, &DeckNavigator::FaceLayoutChanged, this, &DeckShell::UpdateHints);
+}
+
+void DeckShell::HandleSelect() {
+    if (auto* page = CurrentPage()) {
+        page->OnSelect();
+    }
 }
 
 void DeckShell::HandleStart() {
@@ -344,6 +405,16 @@ void DeckShell::HandleAccept() {
 
 void DeckShell::HandleBack() {
     if (auto* page = CurrentPage(); page && page->OnBack()) {
+        return;
+    }
+    // The game options page returns to the library screen it was opened from.
+    if (stack->currentWidget() == detail_page && detail_origin != nullptr) {
+        QWidget* const origin = detail_origin;
+        detail_origin = nullptr;
+        if (origin == all_software_page) {
+            all_software_page->RestoreOnReturn(); // keep the tab, group and tile the user left on
+        }
+        ShowPage(origin);
         return;
     }
     // Not consumed by the page: from Controllers/Settings, return to the home screen.

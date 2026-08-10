@@ -56,8 +56,15 @@ QColor PlayerColor(int index);
 inline constexpr int kGridCardWidth = 272;
 inline constexpr int kGridCardHeight = 272; // square box art
 inline constexpr int kGridCardSpacing = 28;
-inline constexpr int kGridCardMargin = 8;   // uniform margin around each tile inside its cell (gap = 2x)
+inline constexpr int kGridCardMargin = 12;  // uniform margin around each tile inside its cell (gap = 2x)
                                             // (= half the gap between tiles + selection-border room)
+// The Switch's selection, in the proportions of the reference HOME screen. What actually makes the
+// focused tile read is the thick WHITE MATTE around its art, not the ring: on the console the matte
+// is ~2.5% of the tile's side, the ring is a thin tinted edge on its outer rim, and the tile itself
+// grows only slightly. The matte is sized from the art in the delegate (it has to scale with the
+// 272px rail tiles and the 200px All Software tiles alike); these two are fixed.
+inline constexpr int kFocusGrow = 6; ///< px the focused art gains on each side (must be < margin)
+inline constexpr int kFocusRing = 3; ///< width of the iridescent edge around the matte
 inline constexpr int kGridLeadIndent = 96;  // empty space left of the FIRST tile (scrolls away), so
                                             // the rail starts after the avatar but reaches the edge
 inline constexpr int kGridTitleHeight = 48;

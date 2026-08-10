@@ -8,6 +8,7 @@
 
 #include "qt_common/game_list/game_list_p.h"
 #include "yuzu/deck/deck_game_delegate.h"
+#include "yuzu/deck/deck_library_stats.h"
 #include "yuzu/deck/deck_theme.h"
 
 DeckGameDelegate::DeckGameDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
@@ -43,9 +44,11 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     if (index.row() == 0) {
         cell.setLeft(cell.left() + lead_indent);
     }
-    // The focused tile insets by 8 (never less) so its selection ring stays fully inside the cell —
-    // otherwise the ring is clipped at the top/edges. Non-focused tiles inset by the full margin.
-    const int inset = selected ? 8 : DeckTheme::kGridCardMargin;
+    // The focused tile insets less than the rest, so it grows inside its own cell — the margin is
+    // sized (kGridCardMargin > kFocusGrow + kFocusRing) so the grown tile and its ring still sit
+    // fully inside the cell and never clip or touch a neighbour.
+    const int inset = selected ? (DeckTheme::kGridCardMargin - DeckTheme::kFocusGrow)
+                               : DeckTheme::kGridCardMargin;
     QRect box = cell.adjusted(inset, inset, -inset, -inset);
     const int side = std::min(box.width(), box.height());
     QRect art_rect(box.center().x() - side / 2, box.center().y() - side / 2, side, side);
@@ -59,8 +62,8 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         const qreal d = side * 0.72;
         const QRectF circle(art_rect.center().x() - d / 2, art_rect.center().y() - d / 2, d, d);
         if (selected) {
-            for (int s = 8; s >= 1; --s) { // soft lift, matching the tiles
-                painter->setBrush(QColor(0, 0, 0, 5));
+            for (int s = 14; s >= 1; --s) { // soft lift, matching the tiles
+                painter->setBrush(QColor(0, 0, 0, 6));
                 painter->setPen(Qt::NoPen);
                 painter->drawEllipse(circle.adjusted(-s, -s + 1, s, s + 2));
             }
@@ -85,27 +88,28 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             }
         }
         if (selected) {
-            // The circular counterpart of the tile selection: a faint white seat, then a thin
-            // iridescent ring that shimmers with the phase.
+            // The circular counterpart of the tile selection: the same white seat the tiles get as
+            // their matte, then the iridescent ring shimmering with the phase.
             painter->setBrush(Qt::NoBrush);
-            painter->setPen(QPen(QColor(0xff, 0xff, 0xff, 150), 5));
-            painter->drawEllipse(circle.adjusted(-2, -2, 2, 2));
+            painter->setPen(QPen(QColor(0xff, 0xff, 0xff), 9));
+            painter->drawEllipse(circle.adjusted(-3, -3, 3, 3));
             QConicalGradient cg(circle.center(), static_cast<qreal>(phase));
             cg.setColorAt(0.00, QColor(0x5b, 0x8f, 0xff));
             cg.setColorAt(0.30, QColor(0xa9, 0x6c, 0xf0));
             cg.setColorAt(0.55, QColor(0xff, 0x83, 0xc0));
             cg.setColorAt(0.80, QColor(0x4f, 0xc8, 0xf0));
             cg.setColorAt(1.00, QColor(0x5b, 0x8f, 0xff));
-            painter->setPen(QPen(QBrush(cg), 3));
-            painter->drawEllipse(circle.adjusted(-1, -1, 1, 1));
+            painter->setPen(QPen(QBrush(cg), DeckTheme::kFocusRing));
+            painter->drawEllipse(circle.adjusted(-7, -7, 7, 7));
         }
         painter->restore();
         return;
     }
 
-    // The Switch-style selection frame: a thin iridescent border (blue→purple→pink→cyan) that slowly
-    // shimmers, hugging the tile's white matte — delicate, not bold, matching the reference HOME/
-    // Settings selection. Shared by the box-art tiles, the group folder, and the new-group tile.
+    // The Switch-style selection frame: an iridescent border (blue→purple→pink→cyan) that slowly
+    // shimmers around the outer rim of the tile's white matte. Shared by the box-art tiles, the
+    // group folder, and the new-group tile. `r` is the outer edge of the matte; the stroke is
+    // centred on it, so half the width sits on the matte and half just outside.
     const auto draw_rect_selection = [&](const QRectF& r, int rad) {
         painter->setBrush(Qt::NoBrush);
         if (!rail_active) {
@@ -113,23 +117,19 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             // where they'll return, but don't let it compete with the active zone's highlight.
             QColor dim = DeckTheme::kText;
             dim.setAlpha(70);
-            painter->setPen(QPen(dim, 3));
+            painter->setPen(QPen(dim, 4));
             QPainterPath frame;
             frame.addRoundedRect(r.adjusted(-1, -1, 1, 1), rad + 1, rad + 1);
             painter->drawPath(frame);
             return;
         }
-        // The Switch's selection: a *thin* iridescent border that slowly shimmers
-        // (blue → purple → pink → cyan), rotated by the animation phase, hugging the white matte's
-        // outer edge. Subtle — no extra white ring (the thin matte already supplies the white band);
-        // the reference HOME tile reads as a delicate tinted edge, not a bold ring.
         QConicalGradient cg(r.center(), static_cast<qreal>(phase));
         cg.setColorAt(0.00, QColor(0x5b, 0x8f, 0xff));
         cg.setColorAt(0.30, QColor(0xa9, 0x6c, 0xf0));
         cg.setColorAt(0.55, QColor(0xff, 0x83, 0xc0));
         cg.setColorAt(0.80, QColor(0x4f, 0xc8, 0xf0));
         cg.setColorAt(1.00, QColor(0x5b, 0x8f, 0xff));
-        painter->setPen(QPen(QBrush(cg), 2));
+        painter->setPen(QPen(QBrush(cg), DeckTheme::kFocusRing));
         QPainterPath frame;
         frame.addRoundedRect(r, rad, rad);
         painter->drawPath(frame);
@@ -198,18 +198,25 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     if (selected && rail_active) {
         // A soft drop shadow so the focused tile lifts off the page (the Switch's subtle highlight),
-        // rather than a heavy coloured glow. Only while the rail is the active zone.
-        for (int s = 10; s >= 1; --s) {
+        // rather than a heavy coloured glow. Only while the rail is the active zone. Kept inside the
+        // cell — QListView does not clip items, so a wider shadow bleeds onto the neighbouring tile
+        // and is then half-overpainted by it, which reads as a dirty edge on one side only.
+        const int shadow = std::max(1, inset - DeckTheme::kFocusRing);
+        for (int s = shadow; s >= 1; --s) {
             QPainterPath sh;
-            sh.addRoundedRect(art_rect.adjusted(-s, -s + 2, s, s + 4), radius + s, radius + s);
-            painter->fillPath(sh, QColor(0, 0, 0, 5));
+            sh.addRoundedRect(art_rect.adjusted(-s, -s + 1, s, s + 1), radius + s, radius + s);
+            painter->fillPath(sh, QColor(0, 0, 0, 7));
         }
     }
 
     // The Switch's selected tile sits on a white matte: the box art is inset inside a white card, so
-    // a white band shows around the art, and the iridescent frame hugs the card's outer edge.
+    // a broad white band shows around the art, and the iridescent frame rims the card's outer edge
     // (art → white backing → selection frame). Non-selected tiles are just the art.
-    const int matte = (selected && rail_active) ? 2 : 0;
+    //
+    // The matte is what actually makes the focused tile read from across the room — on the console
+    // it is roughly 2.5% of the tile's side, an order of magnitude more than a hairline. Scaled from
+    // the art so the 272px rail tiles and the 200px All Software tiles get the same proportion.
+    const int matte = (selected && rail_active) ? std::max(5, art_rect.width() / 40) : 0;
     if (matte > 0) {
         QPainterPath card;
         card.addRoundedRect(art_rect, radius, radius);
@@ -323,6 +330,25 @@ void DeckGameDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         check.lineTo(badge.left() + badge.width() * 0.44, badge.top() + badge.height() * 0.70);
         check.lineTo(badge.left() + badge.width() * 0.76, badge.top() + badge.height() * 0.30);
         painter->drawPath(check);
+    }
+
+    // A title added in the last week and not yet opened wears a small "NEW" flag in the top-left,
+    // so a game you just copied over is findable even if the library is sorted some other way.
+    if (stats != nullptr &&
+        stats->IsNew(index.data(GameListItemPath::ProgramIdRole).toULongLong())) {
+        QFont bf = painter->font();
+        bf.setPixelSize(std::max(11, static_cast<int>(art_rect.width() * 0.072)));
+        bf.setBold(true);
+        painter->setFont(bf);
+        const QString label = QStringLiteral("NEW");
+        const int tw = QFontMetrics(bf).horizontalAdvance(label);
+        const QRectF flag(art_rect.left() + 8, art_rect.top() + 8, tw + 18, bf.pixelSize() + 10);
+        QPainterPath fp;
+        fp.addRoundedRect(flag, flag.height() / 2.0, flag.height() / 2.0);
+        painter->setPen(Qt::NoPen);
+        painter->fillPath(fp, QColor(0xe8, 0x4a, 0x3f)); // the console's "new" red
+        painter->setPen(QColor(0xff, 0xff, 0xff));
+        painter->drawText(flag, Qt::AlignCenter, label);
     }
 
     // No per-tile title or favourite badge: the Switch shows only the selected game's name, above the

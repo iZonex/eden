@@ -10,6 +10,7 @@
 
 #include "common/common_types.h"
 #include "common/uuid.h"
+#include "yuzu/deck/deck_library_stats.h"
 #include "yuzu/deck/deck_page.h"
 
 namespace Core {
@@ -41,7 +42,7 @@ class DeckGamesPage : public DeckPage {
 public:
     explicit DeckGamesPage(GameListModel* model, Core::System& system,
                            const PlayTime::PlayTimeManager& play_time_manager,
-                           QWidget* parent = nullptr);
+                           DeckLibraryStats& stats, QWidget* parent = nullptr);
     ~DeckGamesPage() override;
 
     bool OnNavigate(Qt::Key key) override;
@@ -62,12 +63,15 @@ public:
     /// Mark the title currently suspended to the HOME menu (0 = none) so its tile shows a paused badge.
     void SetSuspendedGame(u64 program_id);
 
+    /// Re-run the ordering. The sort key (recent activity) lives outside the model, so a launch is
+    /// invisible to the proxy's own change tracking — the shell calls this on every re-entry.
+    void Resort();
+
 signals:
     /// A on a game tile — boot it straight into the game (the standard console behaviour).
     void GamePlayRequested(QString path, u64 program_id);
-    /// B on a game tile — open its options page (details, favorite, remove update/DLC, delete).
-    void GameActivated(QString path, u64 program_id, QString title, QPixmap art, QString meta,
-                       bool favorited);
+    /// B or + on a game tile — open its options page (details, favorite, remove update/DLC, delete).
+    void GameActivated(DeckGameInfo info);
     void FavoriteToggled(u64 program_id);
     void OpenControllers();
     void OpenUsers(Common::UUID focus); ///< open My Page focused on the chosen user (invalid = active)
@@ -101,6 +105,7 @@ private:
 
     Core::System& system;
     GameListModel* model = nullptr;
+    DeckLibraryStats& stats; ///< first-seen / last-played history — the rail's ordering key
     QSortFilterProxyModel* filter = nullptr; ///< Shows only real games (see LibraryFilter).
     QSortFilterProxyModel* head = nullptr; ///< caps the home rail to the recent N (uncapped in the grid)
     QAbstractItemModel* rail_model = nullptr; ///< head + trailing "All Software" tile; the rail's model
