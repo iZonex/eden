@@ -47,6 +47,8 @@ void DeckLibraryStats::Load() {
         return;
     }
     const QJsonObject root = doc.object();
+    // A store already exists, so from here on anything not in it is genuinely new to the library.
+    had_store = !root.isEmpty();
     for (auto it = root.begin(); it != root.end(); ++it) {
         bool ok = false;
         const u64 id = it.key().toULongLong(&ok, 16);
@@ -83,13 +85,21 @@ void DeckLibraryStats::NoteSeen(u64 program_id, const QString& path) {
     }
     Entry e;
 
-    // Date added comes from the file's own timestamp, not from now(). Stamping now() would give an
-    // existing library one identical date, making "by date added" useless and putting every game
-    // level with a title you just copied over. Games arrive on the Deck by being copied in, so the
-    // file's creation (or, where the filesystem has none, modification) time IS when it was added.
-    const QFileInfo info(path);
-    const QDateTime born = info.birthTime().isValid() ? info.birthTime() : info.lastModified();
-    e.first_seen = born.isValid() ? born.toSecsSinceEpoch() : Now();
+    // A game appearing in the library for the first time counts as activity right now, so it lands
+    // at the front exactly like one you just played. The file's own timestamp cannot stand in for
+    // that: a title copied over months ago but only now scanned — a folder added, a reinstall —
+    // would arrive already buried, which is the opposite of what "new" should do.
+    //
+    // The exception is the very first run, where every game in an existing library is new at once.
+    // There the file times are the only thing that tells them apart, so they lay down a sensible
+    // starting order; after that the store itself is what says what is new.
+    if (had_store) {
+        e.first_seen = Now();
+    } else {
+        const QFileInfo info(path);
+        const QDateTime born = info.birthTime().isValid() ? info.birthTime() : info.lastModified();
+        e.first_seen = born.isValid() ? born.toSecsSinceEpoch() : Now();
+    }
 
     // Adopt whatever launch history the core already recorded, once, so upgrading to this store
     // doesn't throw away what the user has played. Gate on the COUNT: GetLaunchTimestamp answers
