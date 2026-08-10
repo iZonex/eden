@@ -12,6 +12,7 @@
 #include "common/settings.h"
 #include "core/core.h"
 #include "qt_common/config/uisettings.h"
+#include "qt_common/game_list/game_list_p.h"
 #include "qt_common/game_list/model.h"
 #include "yuzu/deck/deck_controllers_page.h"
 #include "yuzu/deck/deck_game_detail_page.h"
@@ -127,7 +128,11 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     connect(detail_page, &DeckGameDetailPage::DeleteRequested, this,
             [this](QString path, u64 program_id, QString title) {
                 emit DeleteGameRequested(std::move(path), program_id, std::move(title));
-                model->RefreshGameDirectory(); // the game is gone — re-scan
+                // Drop the one row instead of re-scanning the whole library. A rescan tears the
+                // model down and builds it again under every proxy and both views, which is a lot
+                // of machinery to fire for a single deletion — and it raced the directory watcher,
+                // which is already going to notice the file is gone.
+                DropGameRow(program_id);
                 // Back to whichever library screen the options were opened from. Dropping to the
                 // home screen after a delete meant losing your place in All Software every time.
                 QWidget* const origin = detail_origin != nullptr ? detail_origin : games_page;
@@ -251,6 +256,25 @@ void DeckShell::ShowPage(QWidget* page) {
 void DeckShell::GoHome() {
     detail_origin = nullptr;
     ShowPage(games_page);
+}
+
+void DeckShell::DropGameRow(u64 program_id) {
+    if (model == nullptr || program_id == 0) {
+        return;
+    }
+    // Walk backwards: removing a row shifts everything after it down.
+    for (int row = model->rowCount() - 1; row >= 0; --row) {
+        const QModelIndex idx = model->index(row, 0);
+        if (idx.data(GameListItemPath::ProgramIdRole).toULongLong() == program_id) {
+            model->removeRow(row);
+        }
+    }
+}
+
+void DeckShell::ShowActionResult(const QString& title, const QString& body) {
+    if (stack->currentWidget() == detail_page) {
+        detail_page->ShowNotice(title, body);
+    }
 }
 
 void DeckShell::LaunchGame(QString path, u64 program_id) {
