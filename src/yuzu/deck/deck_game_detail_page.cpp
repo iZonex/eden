@@ -21,7 +21,15 @@ DeckGameDetailPage::DeckGameDetailPage(QWidget* parent) : DeckPage(parent) {}
 void DeckGameDetailPage::SetGame(const DeckGameInfo& info) {
     game = info;
     current = 0;
-    confirming_delete = false;
+    modal = Modal::None;
+    update();
+}
+
+void DeckGameDetailPage::ShowNotice(const QString& title, const QString& body) {
+    notice_title = title;
+    notice_body = body;
+    modal = Modal::Notice;
+    emit HintsChanged();
     update();
 }
 
@@ -119,15 +127,15 @@ void DeckGameDetailPage::SetCurrent(int index) {
 }
 
 void DeckGameDetailPage::OnActivated() {
-    confirming_delete = false;
+    modal = Modal::None;
     current = 0;
     emit HintsChanged();
     update();
 }
 
 bool DeckGameDetailPage::OnNavigate(Qt::Key key) {
-    if (confirming_delete) {
-        return true; // swallow navigation while the confirm is up
+    if (modal != Modal::None) {
+        return true; // swallow navigation while a modal is up
     }
     if (key == Qt::Key_Up) {
         SetCurrent(current - 1);
@@ -150,27 +158,48 @@ void DeckGameDetailPage::Activate() {
         emit FavoriteToggled(game.program_id);
         update();
         break;
+    // Removing an update or DLC throws away installed content, so it gets the same "are you sure"
+    // the delete does. It used to fire straight off, and then a desktop message box asked instead.
     case RemoveUpdate:
-        emit RemoveUpdateRequested(game.program_id);
+        modal = Modal::RemoveUpdate;
         break;
     case RemoveDLC:
-        emit RemoveDLCRequested(game.program_id);
+        modal = Modal::RemoveDLC;
         break;
     case Delete:
-        confirming_delete = true;
-        emit HintsChanged();
-        update();
+        modal = Modal::DeleteGame;
         break;
     default:
+        return;
+    }
+    emit HintsChanged();
+    update();
+}
+
+void DeckGameDetailPage::ConfirmModal() {
+    const Modal was = modal;
+    modal = Modal::None;
+    emit HintsChanged();
+    update();
+    switch (was) {
+    case Modal::DeleteGame:
+        emit DeleteRequested(game.path, game.program_id, game.title);
         break;
+    case Modal::RemoveUpdate:
+        emit RemoveUpdateRequested(game.program_id);
+        break;
+    case Modal::RemoveDLC:
+        emit RemoveDLCRequested(game.program_id);
+        break;
+    case Modal::Notice:
+    case Modal::None:
+        break; // a notice is just dismissed
     }
 }
 
 bool DeckGameDetailPage::OnAccept() {
-    if (confirming_delete) {
-        confirming_delete = false;
-        emit HintsChanged();
-        emit DeleteRequested(game.path, game.program_id, game.title);
+    if (modal != Modal::None) {
+        ConfirmModal();
         return true;
     }
     Activate();
@@ -178,17 +207,17 @@ bool DeckGameDetailPage::OnAccept() {
 }
 
 bool DeckGameDetailPage::OnBack() {
-    if (confirming_delete) {
-        confirming_delete = false;
+    if (modal != Modal::None) {
+        modal = Modal::None;
         emit HintsChanged();
         update();
-        return true; // consumed: just cancel the confirm
+        return true; // consumed: just dismiss the modal
     }
     return false; // let the shell return to the library
 }
 
 void DeckGameDetailPage::mousePressEvent(QMouseEvent* event) {
-    if (confirming_delete) {
+    if (modal != Modal::None) {
         return;
     }
     for (int i = 0; i < ActionCount; ++i) {
@@ -275,7 +304,7 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
     // Action list.
     for (int i = 0; i < ActionCount; ++i) {
         const QRectF r = ActionRect(i);
-        const bool sel = (i == current) && !confirming_delete;
+        const bool sel = (i == current) && modal == Modal::None;
         if (sel) {
             // Cyan glowing rounded border, matching the Switch selection used across the console UI.
             for (int s = 6; s >= 1; --s) {
@@ -302,47 +331,121 @@ void DeckGameDetailPage::paintEvent(QPaintEvent*) {
                    ActionLabel(i, game.favorited));
     }
 
-    // Delete confirmation overlay.
-    if (confirming_delete) {
-        p.fillRect(rect(), QColor(0, 0, 0, 110));
-        const QRectF box((width() - 640) / 2.0, (height() - 240) / 2.0, 640, 240);
-        QPainterPath bp;
-        bp.addRoundedRect(box, 16, 16);
-        p.fillPath(bp, DeckTheme::kSurface);
+    DrawModal(p);
+}
 
-        QFont hf = font();
-        hf.setPixelSize(26);
-        hf.setBold(false);
-        p.setFont(hf);
-        p.setPen(DeckTheme::kText);
-        p.drawText(box.adjusted(40, 40, -40, 0), Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap,
-                   QObject::tr("Delete \"%1\"?").arg(game.title));
+void DeckGameDetailPage::DrawModal(QPainter& p) {
+    if (modal == Modal::None) {
+        return;
+    }
 
-        QFont bf = font();
-        bf.setPixelSize(18);
-        p.setFont(bf);
-        p.setPen(DeckTheme::kTextDim);
-        p.drawText(box.adjusted(40, 110, -40, -70),
-                   Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap,
-                   QObject::tr("This permanently deletes the game file from your Deck. This cannot "
-                               "be undone."));
+    QString heading;
+    QString body;
+    QString confirm_label;
+    bool destructive = false;
+    switch (modal) {
+    case Modal::DeleteGame:
+        // Elided: a long title used to run past the edge of a fixed-width box.
+        heading = tr("Delete this game?");
+        body = tr("\"%1\" will be erased from your Deck. This cannot be undone.").arg(game.title);
+        confirm_label = tr("Delete");
+        destructive = true;
+        break;
+    case Modal::RemoveUpdate:
+        heading = tr("Remove the installed update?");
+        body = tr("\"%1\" goes back to the version it shipped with. The game itself stays.")
+                   .arg(game.title);
+        confirm_label = tr("Remove");
+        destructive = true;
+        break;
+    case Modal::RemoveDLC:
+        heading = tr("Remove the installed DLC?");
+        body = tr("Every add-on installed for \"%1\" is removed. The game itself stays.")
+                   .arg(game.title);
+        confirm_label = tr("Remove");
+        destructive = true;
+        break;
+    case Modal::Notice:
+        heading = notice_title;
+        body = notice_body;
+        confirm_label = tr("OK");
+        break;
+    case Modal::None:
+        return;
+    }
 
-        QFont pf = font();
-        pf.setPixelSize(19);
-        pf.setBold(false);
-        p.setFont(pf);
-        p.setPen(QColor(0xd9, 0x53, 0x4f));
-        p.drawText(box.adjusted(0, 0, -40, -24), Qt::AlignBottom | Qt::AlignRight,
-                   QObject::tr("A  Delete"));
-        p.setPen(DeckTheme::kText);
-        p.drawText(box.adjusted(40, 0, 0, -24), Qt::AlignBottom | Qt::AlignLeft,
-                   QObject::tr("B  Cancel"));
+    p.fillRect(rect(), QColor(0, 0, 0, 130));
+
+    // Size the card to its text instead of a fixed 640x240 — a long game name overflowed it, which
+    // is what made the old confirmation look broken.
+    const qreal w = std::min<qreal>(760, width() - 120);
+    const qreal pad = 36;
+    QFont hf = font();
+    hf.setPixelSize(27);
+    QFont bf = font();
+    bf.setPixelSize(19);
+    const QRectF text_w(0, 0, w - 2 * pad, 10000);
+    const qreal head_h =
+        QFontMetrics(hf).boundingRect(text_w.toRect(), Qt::TextWordWrap, heading).height();
+    const qreal body_h =
+        QFontMetrics(bf).boundingRect(text_w.toRect(), Qt::TextWordWrap, body).height();
+    const qreal buttons_h = 40;
+    const qreal h = pad + head_h + 16 + body_h + 28 + buttons_h + pad;
+    const QRectF box((width() - w) / 2.0, std::max<qreal>(40, (height() - h) / 2.0), w, h);
+
+    for (int s = 10; s >= 1; --s) { // the card lifts off the dimmed page
+        QPainterPath sh;
+        sh.addRoundedRect(box.adjusted(-s, -s + 2, s, s + 3), 18 + s, 18 + s);
+        p.fillPath(sh, QColor(0, 0, 0, 8));
+    }
+    QPainterPath bp;
+    bp.addRoundedRect(box, 18, 18);
+    p.fillPath(bp, DeckTheme::kSurface);
+
+    p.setFont(hf);
+    p.setPen(destructive ? QColor(0xd9, 0x53, 0x4f) : DeckTheme::kText);
+    p.drawText(QRectF(box.left() + pad, box.top() + pad, w - 2 * pad, head_h),
+               Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, heading);
+
+    p.setFont(bf);
+    p.setPen(DeckTheme::kTextDim);
+    p.drawText(QRectF(box.left() + pad, box.top() + pad + head_h + 16, w - 2 * pad, body_h),
+               Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, body);
+
+    // Real button glyphs, the same ones the hint bar draws, so the prompt and the bar agree.
+    const qreal by = box.bottom() - pad - buttons_h / 2.0;
+    qreal x = box.right() - pad;
+    const auto chip = [&](const QString& glyph, const QString& label, const QColor& colour) {
+        QFont lf = font();
+        lf.setPixelSize(20);
+        p.setFont(lf);
+        const int tw = QFontMetrics(lf).horizontalAdvance(label);
+        x -= tw;
+        p.setPen(colour);
+        p.drawText(QRectF(x, by - 14, tw, 28), Qt::AlignVCenter | Qt::AlignLeft, label);
+        x -= 8 + 26;
+        const QPixmap g = DeckTheme::ButtonGlyph(glyph, 26);
+        p.drawPixmap(QPointF(x, by - 13), g);
+        x -= 26;
+    };
+    chip(QStringLiteral("A"), confirm_label,
+         destructive ? QColor(0xd9, 0x53, 0x4f) : DeckTheme::kText);
+    if (modal != Modal::Notice) {
+        chip(QStringLiteral("B"), tr("Cancel"), DeckTheme::kText);
     }
 }
 
 std::vector<DeckHint> DeckGameDetailPage::Hints() const {
-    if (confirming_delete) {
+    switch (modal) {
+    case Modal::DeleteGame:
         return {{QStringLiteral("A"), tr("Delete")}, {QStringLiteral("B"), tr("Cancel")}};
+    case Modal::RemoveUpdate:
+    case Modal::RemoveDLC:
+        return {{QStringLiteral("A"), tr("Remove")}, {QStringLiteral("B"), tr("Cancel")}};
+    case Modal::Notice:
+        return {{QStringLiteral("A"), tr("OK")}};
+    case Modal::None:
+        break;
     }
     return {{QStringLiteral("A"), tr("Select")}, {QStringLiteral("B"), tr("Back")}};
 }
