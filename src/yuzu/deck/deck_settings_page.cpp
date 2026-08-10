@@ -37,7 +37,6 @@ namespace {
 enum class PaneKind {
     Settings,
     Theme,
-    ButtonMapping,
     Support,
     Brightness,
     Bluetooth,
@@ -76,10 +75,7 @@ const std::vector<CategoryDef> kCategories = {
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Data Management"), PaneKind::Storage, {}, {}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Controllers & Accessories"), PaneKind::Settings,
      {{false, Settings::Category::Controls}},
-     {"vibration_enabled", "enable_accurate_vibrations", "motion_enabled"}},
-    {QT_TRANSLATE_NOOP("DeckSettingsPage", "Change Button Mapping"), PaneKind::ButtonMapping,
-     {},
-     {}},
+     {"deck_face_layout", "vibration_enabled", "enable_accurate_vibrations", "motion_enabled"}},
     {QT_TRANSLATE_NOOP("DeckSettingsPage", "Audio"), PaneKind::Settings,
      {{false, Settings::Category::Audio}, {false, Settings::Category::SystemAudio}},
      {"volume", "sound_index", "output_device", "audio_muted"}},
@@ -110,6 +106,11 @@ const std::pair<QString, QString>* ConsoleSettingText(const std::string& key) {
     static const std::map<std::string, std::pair<QString, QString>> kText = {
         {"airplane_mode",
          {QObject::tr("Airplane Mode"), QObject::tr("Turns off wireless communication.")}},
+
+        {"deck_face_layout",
+         {QObject::tr("Button Layout"),
+          QObject::tr("Which letters your controller prints on its face buttons, so the console "
+                      "menus name the button you actually press. Games are unaffected.")}},
 
         {"vibration_enabled",
          {QObject::tr("Vibration"), QObject::tr("Lets games vibrate the controller.")}},
@@ -425,130 +426,6 @@ private:
     int applied = 0;
 };
 
-/// A Switch-style radio picker: a list of options, each with a one-line explanation, and a filled
-/// dot on the one in effect. Same shape as ThemePane but with room for the explanation, which the
-/// button-mapping screen needs (the user has to be told it only affects the console menus). Plain
-/// QWidget (no MOC); the page drives it — Up/Down move focus, A applies.
-class OptionPane : public QWidget {
-public:
-    struct Option {
-        QString label;
-        QString note;
-    };
-
-    explicit OptionPane(std::vector<Option> options_, QString intro_, QWidget* parent = nullptr)
-        : QWidget(parent), options(std::move(options_)), intro(std::move(intro_)) {}
-
-    int Focus() const {
-        return focus;
-    }
-    int Applied() const {
-        return applied;
-    }
-    void SetFocus(int f) {
-        focus = std::clamp(f, 0, static_cast<int>(options.size()) - 1);
-        update();
-    }
-    void SetApplied(int a) {
-        applied = std::clamp(a, 0, static_cast<int>(options.size()) - 1);
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.fillRect(rect(), DeckTheme::kBackground);
-        const int pad = 30;
-        qreal y = 18;
-
-        if (!intro.isEmpty()) {
-            QFont f = font();
-            f.setPixelSize(18);
-            p.setFont(f);
-            p.setPen(DeckTheme::kTextDim);
-            const QRectF box(pad, y, width() - 2.0 * pad, 64);
-            p.drawText(box, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, intro);
-            y += QFontMetrics(f).boundingRect(box.toRect(), Qt::TextWordWrap, intro).height() + 18;
-        }
-
-        const qreal row_h = 86; // taller than ThemePane's rows: each carries an explanation
-        for (int i = 0; i < static_cast<int>(options.size()); ++i) {
-            const QRectF row(pad, y, width() - 2.0 * pad, row_h);
-            const QRectF box = row.adjusted(0, 6, 0, -6);
-            if (i == focus) {
-                QPainterPath fp;
-                fp.addRoundedRect(box, 12, 12);
-                p.fillPath(fp, DeckTheme::kAccentSoft);
-                p.setPen(QPen(DeckTheme::kAccent, 2));
-                p.setBrush(Qt::NoBrush);
-                p.drawRoundedRect(box, 12, 12);
-            } else {
-                p.setPen(DeckTheme::kDivider);
-                p.drawLine(QPointF(row.left(), row.bottom()), QPointF(row.right(), row.bottom()));
-            }
-            // Radio dot on the right marks the option in effect.
-            const QPointF c(row.right() - 32, row.center().y());
-            p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(i == applied ? DeckTheme::kAccent : DeckTheme::kToggleOff, 2));
-            p.drawEllipse(c, 12, 12);
-            if (i == applied) {
-                p.setPen(Qt::NoPen);
-                p.setBrush(DeckTheme::kAccent);
-                p.drawEllipse(c, 7, 7);
-            }
-            QFont lf = font();
-            lf.setPixelSize(21);
-            p.setFont(lf);
-            p.setPen(DeckTheme::kText);
-            p.drawText(QRectF(row.left() + 18, row.top() + 14, row.width() - 90, 28),
-                       Qt::AlignVCenter | Qt::AlignLeft, options[i].label);
-            QFont nf = font();
-            nf.setPixelSize(17);
-            p.setFont(nf);
-            p.setPen(DeckTheme::kTextDim);
-            p.drawText(QRectF(row.left() + 18, row.top() + 44, row.width() - 90, 34),
-                       Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, options[i].note);
-            y += row_h;
-        }
-    }
-
-private:
-    std::vector<Option> options;
-    QString intro;
-    int focus = 0;
-    int applied = 0;
-};
-
-namespace {
-/// The face-button options, in the order they appear in the picker.
-int FaceLayoutToIndex(DeckFaceLayout layout) {
-    switch (layout) {
-    case DeckFaceLayout::Nintendo:
-        return 1;
-    case DeckFaceLayout::SwapXY:
-        return 2;
-    case DeckFaceLayout::SwapAll:
-        return 3;
-    case DeckFaceLayout::Auto:
-    default:
-        return 0;
-    }
-}
-DeckFaceLayout IndexToFaceLayout(int index) {
-    switch (index) {
-    case 1:
-        return DeckFaceLayout::Nintendo;
-    case 2:
-        return DeckFaceLayout::SwapXY;
-    case 3:
-        return DeckFaceLayout::SwapAll;
-    default:
-        return DeckFaceLayout::Auto;
-    }
-}
-} // namespace
-
 DeckSettingsPage::DeckSettingsPage(Core::System& system, QWidget* parent) : DeckPage(parent) {
     // Layout mirrors the Switch's System Settings: a fixed "⚙ System Settings" header with a
     // full-width rule under it, then the section sidebar and the content pane split by a vertical
@@ -644,15 +521,6 @@ void DeckSettingsPage::ApplySidebarStyle() {
     }
 }
 
-void DeckSettingsPage::SetFaceLayout(DeckFaceLayout layout) {
-    if (face_pane == nullptr) {
-        return;
-    }
-    const int index = FaceLayoutToIndex(layout);
-    face_pane->SetApplied(index);
-    face_pane->SetFocus(index);
-}
-
 void DeckSettingsPage::ApplyTheme() {
     // Re-apply the colour-baked chrome (sidebar, header, rules) for the new theme; the settings rows,
     // info rows and theme picker are custom-painted and repaint themselves.
@@ -673,33 +541,6 @@ void DeckSettingsPage::Build(Core::System& system) {
             theme_pane = new ThemePane(pane_stack);
             cat.page = theme_pane;
             cat.is_theme = true;
-            pane_stack->addWidget(cat.page);
-            categories.push_back(std::move(cat));
-            sidebar->addItem(new QListWidgetItem(tr(def.title)));
-            continue;
-        }
-
-        // Change Button Mapping: which letters are printed on the pad's face buttons. This is a
-        // console-menu concern only — the pad's real bindings, and therefore input inside games,
-        // are never touched.
-        if (def.kind == PaneKind::ButtonMapping) {
-            face_pane = new OptionPane(
-                {{tr("Automatic"),
-                  tr("Work it out from the controller that is connected.")},
-                 {tr("Nintendo controller"),
-                  tr("Nothing swapped — a Switch Pro Controller or Joy-Con, where the printed "
-                     "letters already match.")},
-                 {tr("Steam Deck built-in"),
-                  tr("Swap X and Y only. Steam Input already puts A and B the right way round on "
-                     "the Deck's own controls.")},
-                 {tr("Other Xbox-style pad"),
-                  tr("Swap A with B and X with Y — a PC controller connected directly, where every "
-                     "printed letter is one place off.")}},
-                tr("Which button does what in these menus, for the letters printed on your "
-                   "controller. Button mapping inside games is not affected."),
-                pane_stack);
-            cat.page = face_pane;
-            cat.is_face = true;
             pane_stack->addWidget(cat.page);
             categories.push_back(std::move(cat));
             sidebar->addItem(new QListWidgetItem(tr(def.title)));
@@ -929,18 +770,6 @@ bool DeckSettingsPage::OnNavigate(Qt::Key key) {
         }
         return false;
     }
-    // Same for the Change Button Mapping picker.
-    if (auto* cat = Current(); cat != nullptr && cat->is_face && face_pane != nullptr) {
-        if (key == Qt::Key_Up) {
-            face_pane->SetFocus(face_pane->Focus() - 1);
-            return true;
-        }
-        if (key == Qt::Key_Down) {
-            face_pane->SetFocus(face_pane->Focus() + 1);
-            return true;
-        }
-        return false;
-    }
     switch (key) {
     case Qt::Key_Up:
         MoveRow(-1);
@@ -975,13 +804,6 @@ bool DeckSettingsPage::OnAccept() {
         const int choice = theme_pane->Focus();
         theme_pane->SetApplied(choice);
         emit ThemeChangeRequested(choice == 0);
-        return true;
-    }
-    // Change Button Mapping: A applies the focused lettering.
-    if (auto* cat = Current(); cat != nullptr && cat->is_face && face_pane != nullptr) {
-        const int choice = face_pane->Focus();
-        face_pane->SetApplied(choice);
-        emit FaceLayoutChangeRequested(IndexToFaceLayout(choice));
         return true;
     }
     if (auto* cat = Current(); cat != nullptr && current_row >= 0 &&

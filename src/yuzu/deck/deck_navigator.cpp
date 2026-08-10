@@ -11,6 +11,7 @@
 
 #include "common/logging.h"
 #include "common/param_package.h"
+#include "common/settings.h"
 #include "common/settings_input.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/hid_core.h"
