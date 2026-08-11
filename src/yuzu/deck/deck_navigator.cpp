@@ -36,7 +36,7 @@ constexpr int kAccelerateAfterTicks = 70;
 constexpr int kLayoutPollTicks = 60; // ~1 s
 
 /// USB vendor id Valve uses for the Steam Input virtual pad that fronts the Deck's built-in
-/// controls. That pad is the one case where A/B arrive already un-crossed (see DeckFaceLayout).
+/// controls. That pad delivers all four letters un-crossed (see DetectFaceLayout).
 constexpr Uint16 kValveVendor = 0x28de;
 
 /// Works out which face-button crossing the connected hardware needs. Returns nullopt when nothing
@@ -73,8 +73,16 @@ std::optional<DeckFaceLayout> DetectFaceLayout() {
 
     // The Deck's own controls win when they are present: that is the pad in the user's hands, and a
     // Pro Controller plugged in beside it should not change what the built-in buttons do.
+    //
+    // Nothing is crossed on that pad. This used to answer SwapXY, on the belief that Steam Input
+    // straightened A/B but left X and Y on each other's npad bit. It straightens all four: the
+    // emulator's binding matches SDL's button by NAME, so the letter printed on the Deck is the
+    // letter that arrives. Crossing X/Y on top of that is what put them on the wrong actions —
+    // pressing Y ran the X action, while A and B, being uncrossed by this preset, stayed correct.
+    // That asymmetry is the tell, and it is visible in the log: `bit 3 -> PrimaryAction` is BtnY
+    // firing X's intent.
     if (valve) {
-        return DeckFaceLayout::SwapXY;
+        return DeckFaceLayout::Nintendo;
     }
     return all_nintendo ? DeckFaceLayout::Nintendo : DeckFaceLayout::SwapAll;
 }
@@ -142,8 +150,8 @@ void DeckNavigator::RefreshFaceLayout() {
     }
     if (resolved != was) {
         LOG_INFO(Input, "Deck menu: face buttons resolved to {}",
-                 resolved == DeckFaceLayout::Nintendo  ? "Nintendo (nothing crossed)"
-                 : resolved == DeckFaceLayout::SwapXY  ? "Steam Deck (X/Y crossed)"
+                 resolved == DeckFaceLayout::Nintendo  ? "nothing crossed (Steam Deck / Nintendo)"
+                 : resolved == DeckFaceLayout::SwapXY  ? "X/Y crossed"
                                                        : "Xbox pad (all four crossed)");
         emit FaceLayoutChanged();
     }
@@ -152,9 +160,10 @@ void DeckNavigator::RefreshFaceLayout() {
 DeckNavigator::FaceBits DeckNavigator::Face() const {
     switch (resolved) {
     case DeckFaceLayout::SwapXY:
-        // The Deck's built-in controls. Steam Input hands them over with Nintendo's A/B already in
-        // place, so those two are right as they are; only the printed X and Y sit on each other's
-        // npad bit. Crossing all four here would put A/B back the wrong way round.
+        // A pad whose top and left buttons are printed the other way round from the npad bits they
+        // send, with A/B already in place. NOT the Deck's built-in controls — those send all four
+        // straight through and want Nintendo; this preset is kept for hardware that genuinely needs
+        // the top pair crossed.
         return {BtnA, BtnB, BtnY, BtnX};
     case DeckFaceLayout::SwapAll:
         // A plain Xbox-lettered pad, straight through SDL. SDL binds by position and the emulator's
@@ -164,6 +173,7 @@ DeckNavigator::FaceBits DeckNavigator::Face() const {
     case DeckFaceLayout::Nintendo:
     case DeckFaceLayout::Auto:
     default:
+        // Every letter lands on its own bit. A Nintendo pad, and the Deck's built-in controls.
         return {BtnA, BtnB, BtnX, BtnY};
     }
 }
