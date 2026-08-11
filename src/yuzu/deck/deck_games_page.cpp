@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <functional>
+#include <QEasingCurve>
+#include <QVariantAnimation>
 #include <QAbstractListModel>
 #include <QConcatenateTablesProxyModel>
 #include <QCoreApplication>
@@ -12,7 +15,6 @@
 #include <QIcon>
 #include <QImage>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QListView>
 #include <QMouseEvent>
 #include <QPainter>
@@ -162,6 +164,46 @@ private:
     bool hidden = false;
 };
 
+// The console never shows a half-empty home row: behind the games it lays out vacant slots all the
+// way to the screen edge and one past it. How many that is depends on the panel, so the count is
+// measured at runtime — see DeckGamesPage::UpdatePadCount.
+//
+// The vacant slots themselves. Concatenated between the games and the round All Software button, so
+// a library of one game still reads as a row rather than a lone tile floating in white space. They
+// carry nothing but DeckPlaceholderRole: the cursor lands on them (the console lets it) and every
+// action on them is a no-op, which is what the dimmed hint in the bottom bar is telling the user.
+class PadModel : public QAbstractListModel {
+public:
+    explicit PadModel(QObject* parent = nullptr) : QAbstractListModel(parent) {}
+    int rowCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : count;
+    }
+    // Match the game-list model's column count so QConcatenateTablesProxyModel lines the two up.
+    int columnCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : GameListModel::COLUMN_COUNT;
+    }
+    QVariant data(const QModelIndex& index, int role) const override {
+        if (!index.isValid() || index.column() != 0 || role != DeckPlaceholderRole) {
+            return {};
+        }
+        return true;
+    }
+    void SetCount(int n) {
+        n = std::max(0, n);
+        if (count == n) {
+            return;
+        }
+        // A plain reset: the one source-side change QConcatenateTablesProxyModel is known to survive
+        // (see the note in ResortNow about layoutChanged taking the process with it).
+        beginResetModel();
+        count = n;
+        endResetModel();
+    }
+
+private:
+    int count = 0;
+};
+
 /// The Deck's battery charge as a "NN%" string for the Switch-style status cluster, or empty when no
 /// battery is present (e.g. desktop testing). Read straight from sysfs so it needs no extra deps.
 /// Battery charge 0-100, or -1 when there is no battery (desktop testing).
@@ -238,7 +280,7 @@ public:
     enum { kAlbum = 0, kControllers = 1, kSettings = 2, kSleep = 3, kPower = 4, kCount = 5 };
 
     explicit DockBar(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedHeight(144); // pill (icon 62 + pad 32) + the focused item's tooltip below it
+        setFixedHeight(150); // pill (icon 62 + pad 32) + the focused item's name below it
         names[kAlbum] = QStringLiteral("album");
         names[kControllers] = QStringLiteral("controllers");
         names[kSettings] = QStringLiteral("settings");
@@ -305,7 +347,7 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        p.fillRect(rect(), DeckTheme::kBackground);
+        DeckTheme::PaintGround(p, *this);
 
         const QRectF pill = PillRect();
         // Flat white pill, no shadow (the Switch dock sits flat on the page).
@@ -327,14 +369,15 @@ protected:
             const QRectF sq = IconRect(i);
             if (sel) {
                 focused = i;
-                // Subtle round highlight behind the focused icon — a soft grey disc, like the Switch's
-                // dock selection (calm, no coloured shimmer).
-                const QRectF disc = sq.adjusted(-8, -8, 8, 8);
-                p.setPen(Qt::NoPen);
-                QColor hl = DeckTheme::kText;
-                hl.setAlpha(DeckTheme::IsLightMode() ? 24 : 38);
-                p.setBrush(hl);
-                p.drawEllipse(disc);
+                // The console rings the focused dock icon with the same iridescent sweep the game
+                // tiles wear, and leaves the icon itself untouched — no disc, no wash behind it. One
+                // selection language for the whole screen is the single biggest thing that makes the
+                // shell read as the real HOME menu rather than a lookalike.
+                const QRectF ring = sq.adjusted(-2, -2, 2, 2);
+                p.setBrush(Qt::NoBrush);
+                p.setPen(QPen(DeckTheme::SelectionSweep(ring.center(), phase),
+                              DeckTheme::kFocusRing));
+                p.drawEllipse(ring);
             }
             // Icon glyph — coloured for the app, grey for system items (no per-icon label; the Switch
             // shows only the focused item's name).
@@ -343,20 +386,21 @@ protected:
                          glyph);
         }
 
-        // Focused item's name in a rounded pill below its icon (the Switch's dock tooltip).
+        // Focused item's name, as plain text on the page below its icon. The console has no tooltip
+        // bubble here — a filled plate under the word is a second white shape stacked under the
+        // dock's own white pill, which is exactly what the reference does not have.
         if (focused >= 0) {
             const QRectF sq = IconRect(focused);
             QFont f = font();
-            f.setPixelSize(19);
+            f.setPixelSize(23);
+            p.setFont(f);
+            f.setWeight(QFont::Normal); // book weight, like the console's dock label
             p.setFont(f);
             const QString text = labels[focused];
-            const int tw = QFontMetrics(f).horizontalAdvance(text) + 28;
-            const QRectF tip(sq.center().x() - tw / 2.0, pill.bottom() + 10, tw, 32);
-            QPainterPath tip_path;
-            tip_path.addRoundedRect(tip, 10, 10);
-            p.fillPath(tip_path, DeckTheme::kSurface);
+            const int tw = QFontMetrics(f).horizontalAdvance(text) + 24;
             p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
-            p.drawText(tip, Qt::AlignCenter, text);
+            p.drawText(QRectF(sq.center().x() - tw / 2.0, pill.bottom() + 8, tw, 32),
+                       Qt::AlignCenter, text);
         }
     }
 
@@ -387,9 +431,19 @@ public:
             update();
         }
     }
+    /// Shared shimmer clock, so the avatar's ring turns in step with the tiles and the dock.
+    void SetPhase(int p) {
+        phase = p;
+        if (focused) {
+            update(); // only the focused ring animates; at rest this widget is static
+        }
+    }
+    bool Focused() const {
+        return focused;
+    }
 
 protected:
-    static constexpr int kRing = 62;  // avatar area (face + ring room)
+    static constexpr int kRing = 72;  // avatar area (face + room for the matte and ring)
     static constexpr int kFace = 56;  // avatar diameter
     static constexpr int kGap = 4;    // gap between avatar and label
     static constexpr int kLabelH = 26;
@@ -422,11 +476,18 @@ protected:
             p.drawEllipse(face);
         }
         if (focused) {
-            // Clean royal-blue ring (the accent), not a coloured shimmer — matches the "…'s Page"
-            // label and the Switch's calm selection.
+            // The same two-part selection the tiles get, in the round: a white seat around the face,
+            // then the iridescent rim on its outer edge. A flat accent-blue ring here was the one
+            // focus affordance in the shell that did not match the others.
             p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(DeckTheme::kAccent, 3));
-            p.drawEllipse(slot.adjusted(2, 2, -2, -2));
+            const QPointF c = slot.center();
+            const auto circle = [&c](qreal d) {
+                return QRectF(c.x() - d / 2, c.y() - d / 2, d, d);
+            };
+            p.setPen(QPen(QColor(0xff, 0xff, 0xff), 6));
+            p.drawEllipse(circle(kFace + 4));
+            p.setPen(QPen(DeckTheme::SelectionSweep(c, phase), DeckTheme::kFocusRing));
+            p.drawEllipse(circle(kFace + 12));
         }
         // "<Name>'s Page" label BELOW the avatar — only while focused, like the Switch (the name is
         // not shown on the resting home screen).
@@ -444,6 +505,7 @@ private:
     QPixmap avatar;
     QString name;
     bool focused = false;
+    int phase = 0;
 };
 
 /// The Switch home status cluster: the time, a wifi glyph, and a battery graphic. Custom-painted so
@@ -462,10 +524,27 @@ public:
     }
 
 protected:
+    static constexpr int kPctPx = 24;    ///< the digits of the charge reading
+    static constexpr int kPctSignPx = 15; ///< its "%", set smaller, as the console does
+
+    /// Width of the "99%" reading (0 when there is no battery — desktop testing).
+    int ChargeWidth() const {
+        if (battery < 0) {
+            return 0;
+        }
+        QFont d = font();
+        d.setPixelSize(kPctPx);
+        QFont s = font();
+        s.setPixelSize(kPctSignPx);
+        return QFontMetrics(d).horizontalAdvance(QString::number(battery)) +
+               QFontMetrics(s).horizontalAdvance(QStringLiteral("%")) + 10;
+    }
+
     void Refit() {
         QFont f = font();
         f.setPixelSize(28);
-        setFixedWidth(QFontMetrics(f).horizontalAdvance(time_text) + 18 + 28 + 14 + 42);
+        setFixedWidth(QFontMetrics(f).horizontalAdvance(time_text) + 18 + 28 + 14 + ChargeWidth() +
+                      42);
     }
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
@@ -494,6 +573,27 @@ protected:
             p.drawEllipse(QPointF(cx, cy), 1.8, 1.8);
             x += 28 + 14;
         }
+        // The charge as a number, ahead of the graphic — the console prints both, and on a handheld
+        // the exact figure is the part people actually read. Both parts are placed on the CLOCK's
+        // baseline (not centred in the strip), so the reading sits on one line with the time even
+        // though the digits and the "%" are set at three different sizes.
+        if (battery >= 0) {
+            const QFontMetrics fm(f);
+            const qreal baseline = (h + fm.ascent() - fm.descent()) / 2.0;
+            QFont d = font();
+            d.setPixelSize(kPctPx);
+            QFont s = font();
+            s.setPixelSize(kPctSignPx);
+            const QString digits = QString::number(battery);
+            const int dw = QFontMetrics(d).horizontalAdvance(digits);
+            const int sw = QFontMetrics(s).horizontalAdvance(QStringLiteral("%"));
+            p.setPen(DeckTheme::kText);
+            p.setFont(d);
+            p.drawText(QPointF(x, baseline), digits);
+            p.setFont(s);
+            p.drawText(QPointF(x + dw + 1, baseline), QStringLiteral("%"));
+            x += dw + sw + 10;
+        }
         // Battery graphic.
         if (battery >= 0) {
             const qreal bw = 36, bh = 18, by = (h - bh) / 2.0;
@@ -514,6 +614,62 @@ private:
     int battery = -1;
 };
 
+/// The selected game's name above the rail, with the small red console mark the HOME screen puts in
+/// front of it to say where the software lives. Custom-painted rather than a styled QLabel so the
+/// mark, the text and the indent are one thing that cannot drift apart — as two stylesheets (one in
+/// the constructor, one in ApplyTheme) previously did, disagreeing on both size and indent so the
+/// title shifted the first time the user changed theme. Plain QWidget (no MOC).
+class GameTitleLabel : public QWidget {
+public:
+    explicit GameTitleLabel(QWidget* parent = nullptr) : QWidget(parent) {
+        setFixedHeight(kHeight);
+        // Nintendo red, and fixed: the mark reads as the console's own badge on both themes.
+        mark = DeckTheme::Icon(QStringLiteral("console"), kMark, QColor(0xe6, 0x00, 0x12));
+    }
+    void SetText(const QString& t) {
+        if (text == t) {
+            return;
+        }
+        text = t;
+        update();
+    }
+
+protected:
+    static constexpr int kHeight = 36;
+    static constexpr int kMark = 22;
+    static constexpr int kFontPx = 26;
+    static constexpr int kMarkGap = 10;
+
+    void paintEvent(QPaintEvent*) override {
+        if (text.isEmpty()) {
+            return; // nothing selected: the console shows no title line at all
+        }
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        // Aligned with the left edge of the first tile's ART — the lead indent plus the cell margin —
+        // so the name sits directly over the tile it belongs to rather than near it.
+        const qreal x = DeckTheme::kGridLeadIndent + DeckTheme::kGridCardMargin;
+        p.drawPixmap(QPointF(x, (kHeight - kMark) / 2.0), mark);
+        QFont f = font();
+        f.setPixelSize(kFontPx);
+        // Regular, explicitly: the console sets this line at book weight, and the styled QLabel this
+        // replaced asked for 500, which several UI fonts round up to a visibly semibold face.
+        f.setWeight(QFont::Normal);
+        p.setFont(f);
+        p.setPen(DeckTheme::IsLightMode() ? QColor(0x2f, 0x6c, 0xb5) : QColor(0x6a, 0xb4, 0xff));
+        const qreal tx = x + kMark + kMarkGap;
+        p.drawText(QRectF(tx, 0, std::max(0.0, width() - tx - 24), kHeight),
+                   Qt::AlignVCenter | Qt::AlignLeft,
+                   QFontMetrics(f).elidedText(text, Qt::ElideRight,
+                                              static_cast<int>(width() - tx - 24)));
+    }
+
+private:
+    QString text;
+    QPixmap mark;
+};
+
 namespace {
 /// The empty-library state: a row of blank rounded tiles with a hint. Plain QWidget, no MOC.
 class PlaceholderRail : public QWidget {
@@ -524,7 +680,7 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
-        p.fillRect(rect(), DeckTheme::kBackground); // custom paint: draw our own dark ground
+        DeckTheme::PaintGround(p, *this); // custom paint: draw our own slice of the page ground
         constexpr int tiles = 5;
         const int size = 210;
         const int gap = DeckTheme::kGridCardSpacing;
@@ -534,11 +690,10 @@ protected:
         for (int i = 0; i < tiles; ++i) {
             QRectF tile(x, y, size, size);
             QPainterPath path;
+            // Borderless, like the empty slots on the console's own home row — the fill is already
+            // lighter than the page, and an outline on top of that turns a vacant seat into a box.
             path.addRoundedRect(tile, DeckTheme::kCornerRadius, DeckTheme::kCornerRadius);
             p.fillPath(path, DeckTheme::kPlaceholder);
-            p.setPen(QPen(DeckTheme::kPlaceholderBorder, 1));
-            p.setBrush(Qt::NoBrush);
-            p.drawPath(path);
             x += size + gap;
         }
         QFont f = font();
@@ -575,11 +730,7 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     // The selected game's name, under the User Page strip and directly above the rail so it reads as
     // that row's title (not a floating line). Left-aligned to where the tiles begin.
     outer->addSpacing(6);
-    game_title = new QLabel(this);
-    game_title->setFixedHeight(34);
-    game_title->setStyleSheet(QStringLiteral("font-size:26px; font-weight:500; color:%1; "
-                                             "padding-left:104px;")
-                                  .arg(DeckTheme::kAccent.name()));
+    game_title = new GameTitleLabel(this);
     outer->addWidget(game_title);
     outer->addSpacing(6);
 
@@ -614,11 +765,15 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     head_proxy->SetLimit(kHomeRailRecent);
     head = head_proxy;
 
-    // The rail shows the recent games (head) followed by a trailing round "All Software" tile that
-    // opens the full-library grid — concatenated so it is always the last cell of the row.
+    // The rail shows the recent games (head), then enough empty slots to carry the row out to the
+    // screen edge, and the round "Show More" button closes the row. Nothing follows it: on the
+    // console that button is the end of the list, so an empty slot sitting after it would be a
+    // vacancy past the end of the row rather than inside it.
     // QConcatenateTablesProxyModel preserves row order, so the mapping to head stays 1:1.
     auto* concat = new QConcatenateTablesProxyModel(this);
     concat->addSourceModel(head);
+    pads = new PadModel(this);
+    concat->addSourceModel(pads);
     all_software = new AllSoftwareModel(this);
     concat->addSourceModel(all_software);
     rail_model = concat;
@@ -651,6 +806,11 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
     rail->setFocusPolicy(Qt::NoFocus);
     rail->setContentsMargins(0, 0, 0, 0);
     rail->setStyleSheet(QStringLiteral("QListView { background: transparent; }"));
+    // Let the page's ground (and the pearlescent wash on it) show through the rail instead of the
+    // viewport filling its own flat rectangle over it. `deckTranslucent` is the shell's opt-out from
+    // the blanket autoFillBackground it applies to every widget (see DeckShell's ForceDarkBackground).
+    rail->setProperty("deckTranslucent", true);
+    rail->viewport()->setProperty("deckTranslucent", true);
     // Kinetic scrolling via the left-mouse gesture (touch is synthesized to it), matching the
     // desktop game list. A plain tap still reaches the item so touch selection/launch works.
     QScroller::grabGesture(rail->viewport(), QScroller::LeftMouseButtonGesture);
@@ -687,7 +847,11 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
                         ReadBatteryPercent());
         auto& pm = system.GetProfileManager();
         active_uuid = pm.GetLastOpenedUser();
-        avatar->SetAvatar(UserAvatar(active_uuid, 52), ActiveUserName(pm, active_uuid));
+        avatar->SetAvatar(UserAvatar(active_uuid, 56), ActiveUserName(pm, active_uuid));
+        // The same face goes inside the "Playing" pill on a suspended title's tile.
+        if (delegate != nullptr) {
+            delegate->SetPlayingAvatar(UserAvatar(active_uuid, 64));
+        }
     };
     connect(clock_timer, &QTimer::timeout, this, update_status);
     update_status();
@@ -704,16 +868,54 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
             dock->SetPhase(phase);
             dock->update();
         }
-        // The avatar ring is static (only shown while selected), so it needs no per-frame repaint.
+        if (avatar != nullptr) {
+            avatar->SetPhase(phase); // repaints only while its ring is actually showing
+        }
         if (rail != nullptr) {
             rail->viewport()->update();
         }
     });
     shimmer_timer->start();
 
-    // Keep the game-name label in sync with the selected tile.
+    // The selection settling onto a tile: it swells, its white matte widens and its ring fades in
+    // over a few frames. Short enough that holding a direction still scrolls briskly — the console's
+    // movement is quick, not floaty.
+    focus_anim = new QVariantAnimation(this);
+    focus_anim->setDuration(130);
+    focus_anim->setStartValue(0.0);
+    focus_anim->setEndValue(1.0);
+    focus_anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(focus_anim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+        delegate->SetFocusProgress(v.toReal());
+        rail->viewport()->update();
+    });
+
+    // The press: a quick dip and rebound on the chosen tile. The launch itself waits for it to
+    // finish, because booting is synchronous — start it first and the animation would never be
+    // drawn, since the whole UI thread is inside the loader by the second frame.
+    press_anim = new QVariantAnimation(this);
+    press_anim->setDuration(170);
+    press_anim->setStartValue(0.0);
+    press_anim->setEndValue(1.0);
+    connect(press_anim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+        delegate->SetPressProgress(v.toReal());
+        rail->viewport()->update();
+    });
+    connect(press_anim, &QVariantAnimation::finished, this, [this] {
+        delegate->SetPressProgress(0.0);
+        rail->viewport()->update();
+        pressing = false;
+        ActivateCurrentTile();
+    });
+
+    // Keep the game-name label in sync with the selected tile, and restart the settle animation so
+    // the newly-arrived-at tile grows into focus rather than appearing already focused.
     connect(rail->selectionModel(), &QItemSelectionModel::currentChanged, this,
-            [this](const QModelIndex&, const QModelIndex&) { UpdateGameTitle(); });
+            [this](const QModelIndex&, const QModelIndex&) {
+                UpdateGameTitle();
+                focus_anim->stop();
+                focus_anim->start();
+            });
 
     // Games load asynchronously, so the home may open on an empty rail (dock-focused). When the first
     // game appears, snap focus to the rail with a valid selection so it's navigable from the first
@@ -724,6 +926,10 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
                     initial_focus_pending = false;
                     rail->setVisible(true);
                     placeholder->setVisible(false);
+                    // Deferred: this runs inside the concatenating proxy's own rowsInserted, and
+                    // resetting one of its sources from there is exactly the re-entrancy that took
+                    // the process down before (see ResortNow).
+                    Resort();
                     if (!rail->currentIndex().isValid()) {
                         rail->setCurrentIndex(rail_model->index(0, 0));
                     }
@@ -734,17 +940,23 @@ DeckGamesPage::DeckGamesPage(GameListModel* model_, Core::System& system_,
 
 DeckGamesPage::~DeckGamesPage() = default;
 
+void DeckGamesPage::paintEvent(QPaintEvent*) {
+    // The page's own ground, including the pearlescent wash Basic White carries at the foot of the
+    // screen. The custom-painted children (dock, empty rail, hint bar) each paint their own slice of
+    // the same gradient, so it stays continuous across them.
+    QPainter p(this);
+    DeckTheme::PaintGround(p, *this);
+}
+
 void DeckGamesPage::ApplyTheme() {
-    // The status cluster, tiles, dock and avatar are custom-painted and read DeckTheme live, so they
-    // just need a repaint on a theme change.
+    // Everything on this page is custom-painted and reads DeckTheme live, so a theme change is just
+    // a repaint — there are no baked-in colour stylesheets left here to re-apply.
+    update();
     if (status != nullptr) {
         status->update();
     }
     if (game_title != nullptr) {
-        game_title->setStyleSheet(
-            QStringLiteral("font-size:28px; font-weight:500; color:%1; padding-left:100px;")
-                .arg(DeckTheme::IsLightMode() ? QStringLiteral("#2f6cb5")
-                                              : QStringLiteral("#6ab4ff")));
+        game_title->update();
     }
 }
 
@@ -792,6 +1004,10 @@ void DeckGamesPage::ResortNow() {
     filter->setSourceModel(nullptr);
     filter->setSourceModel(model);
     filter->sort(0);
+    // The number of games just changed, so the row may need more or fewer vacant slots behind them.
+    // Done here, inside the one place that already saves and restores the cursor, because resetting
+    // the pad model resets the whole concatenating proxy and drops the view's current index with it.
+    UpdatePadCount();
 
     const int rows = rail_model != nullptr ? rail_model->rowCount() : 0;
     if (rows == 0) {
@@ -812,12 +1028,37 @@ void DeckGamesPage::ResortNow() {
 }
 
 void DeckGamesPage::SetSuspendedGame(u64 program_id) {
+    playing_id = program_id; // also gates the X Close Software hint on that tile
     if (delegate != nullptr) {
-        delegate->SetSuspendedProgramId(program_id);
+        delegate->SetPlayingProgramId(program_id);
     }
     if (rail != nullptr) {
         rail->viewport()->update();
     }
+    emit HintsChanged();
+}
+
+void DeckGamesPage::UpdatePadCount() {
+    if (pads == nullptr || head == nullptr || rail == nullptr) {
+        return;
+    }
+    if (grid_mode) {
+        static_cast<PadModel*>(pads)->SetCount(0); // the full-library grid shows games only
+        return;
+    }
+    // Fill the row out past the right edge, so there is always a tile half in view saying it
+    // continues. Measured off the viewport rather than fixed, because the shell runs at 1280x800 on
+    // the Deck's own panel, 1280x720 docked to a TV, and whatever size the desktop window happens
+    // to be — a constant that fills one of those leaves a ragged gap or a clipped tile on the others.
+    const int cell = DeckTheme::kGridCardWidth + 2 * DeckTheme::kGridCardMargin;
+    const int usable = std::max(0, rail->viewport()->width() - DeckTheme::kGridLeadIndent);
+    const int wanted = usable / cell + 1;  // the visible row, plus one cell peeking off the edge
+    const int taken = head->rowCount() + 1; // the games, plus the Show More button closing the row
+    static_cast<PadModel*>(pads)->SetCount(wanted - taken);
+}
+
+bool DeckGamesPage::OnPlaceholder() const {
+    return rail != nullptr && rail->currentIndex().data(DeckPlaceholderRole).toBool();
 }
 
 QModelIndex DeckGamesPage::CurrentGameIndex() const {
@@ -843,6 +1084,9 @@ void DeckGamesPage::MoveRail(int delta) {
     rail->scrollTo(idx, grid_mode ? QAbstractItemView::EnsureVisible
                                   : QAbstractItemView::PositionAtCenter);
     UpdateGameTitle(); // reposition the name pill after the scroll settles
+    // What A and X can do changes tile by tile — an empty slot dims A, the suspended title's own
+    // tile is the only one that offers X Close Software.
+    emit HintsChanged();
 }
 
 int DeckGamesPage::GridColumns() const {
@@ -864,6 +1108,7 @@ void DeckGamesPage::SetGridMode(bool on) {
     if (all_software != nullptr) {
         static_cast<AllSoftwareModel*>(all_software)->SetHidden(on);
     }
+    UpdatePadCount(); // no vacant slots in the full-library grid
     if (on) {
         // "See all": reflow the single-row rail into a full wrapping grid of every game, hiding the
         // dock so the whole area is the library. No leading indent here — a plain aligned grid.
@@ -899,7 +1144,12 @@ void DeckGamesPage::SetZone(Zone new_zone) {
     if (new_zone == Zone::Rail && IsEmpty()) {
         new_zone = Zone::Dock;
     }
+    const bool entering_rail = new_zone == Zone::Rail && zone != Zone::Rail;
     zone = new_zone;
+    if (entering_rail && focus_anim != nullptr) {
+        focus_anim->stop(); // coming back from the dock: let the tile grow in, same as arriving on it
+        focus_anim->start();
+    }
     dock->SetActive(zone == Zone::Dock);
     avatar->SetFocused(zone == Zone::Avatar); // shimmering round ring, not a square border
     delegate->SetRailActive(zone == Zone::Rail); // dim the selected tile when focus leaves the rail
@@ -916,19 +1166,29 @@ void DeckGamesPage::UpdateGameTitle() {
         return;
     }
     const QModelIndex idx = rail->currentIndex();
-    // The selected game's name (blank on the dock/avatar zones or the All Software button).
+    // The selected game's name (blank on the dock/avatar zones, an empty slot, or All Software).
     QString t;
-    if (zone == Zone::Rail && idx.isValid() && !idx.data(DeckAllSoftwareRole).toBool()) {
+    if (zone == Zone::Rail && idx.isValid() && !idx.data(DeckAllSoftwareRole).toBool() &&
+        !idx.data(DeckPlaceholderRole).toBool()) {
         t = idx.data(GameListItemPath::TitleRole).toString();
         if (t.isEmpty()) {
             t = idx.data(Qt::DisplayRole).toString();
         }
     }
-    game_title->setText(t);
+    game_title->SetText(t);
 }
 
 void DeckGamesPage::OnActivated() {
     launched = false; // returned to the console; allow launching again
+    // Coming back from a game (or from a sub-page) with a half-played press would leave the tile
+    // squashed and A dead, because `pressing` swallows presses until the animation reports back.
+    pressing = false;
+    if (press_anim != nullptr) {
+        press_anim->stop();
+    }
+    if (delegate != nullptr) {
+        delegate->SetPressProgress(0.0);
+    }
     SetGridMode(false); // always land on the home rail, not the "see all" grid
     // Coming back from a game (or from a scan that found new titles) changes the order, and nothing
     // in the model changed to tell the proxy so. Re-sort before the rail is shown.
@@ -1013,13 +1273,20 @@ bool DeckGamesPage::OnNavigate(Qt::Key key) {
 }
 
 bool DeckGamesPage::OnPrimaryAction() {
-    // No "See all" grid — the Switch home has no such mode, and it disrupted the layout.
+    // X closes the title that is suspended to HOME, and only from its own tile — the console offers
+    // "Close Software" exactly there. Everywhere else X does nothing, so it can never shut a running
+    // game down from under a cursor that is parked somewhere unrelated.
+    if (zone == Zone::Rail && playing_id != 0 &&
+        rail->currentIndex().data(GameListItemPath::ProgramIdRole).toULongLong() == playing_id) {
+        emit CloseSoftwareRequested();
+        return true;
+    }
     return false;
 }
 
 bool DeckGamesPage::OnStart() {
     // + opens the selected game's options (Switch: ＋ Параметры).
-    if (zone == Zone::Rail && !IsEmpty()) {
+    if (zone == Zone::Rail && !IsEmpty() && !OnPlaceholder()) {
         EmitCurrentGame();
     }
     return true;
@@ -1037,12 +1304,29 @@ bool DeckGamesPage::OnAccept() {
         emit OpenUsers(active_uuid); // A on the avatar opens the active user's My Page
     } else if (zone == Zone::Dock) {
         ActivateDock();
-    } else if (rail->currentIndex().data(DeckAllSoftwareRole).toBool()) {
-        emit OpenAllSoftware(); // A on the trailing All Software tile opens the full-library page
+    } else if (OnPlaceholder()) {
+        return true; // an empty slot: the cursor may rest here, but there is nothing to open
     } else {
-        PlayCurrentGame(); // A boots the game straight away
+        BeginPress(); // dip the tile first; ActivateCurrentTile runs on the rebound
     }
     return true;
+}
+
+void DeckGamesPage::BeginPress() {
+    if (pressing) {
+        return; // already dipping; a second A must not queue a second launch
+    }
+    pressing = true;
+    press_anim->stop();
+    press_anim->start();
+}
+
+void DeckGamesPage::ActivateCurrentTile() {
+    if (rail->currentIndex().data(DeckAllSoftwareRole).toBool()) {
+        emit OpenAllSoftware(); // the round Show More button opens the full-library page
+    } else {
+        PlayCurrentGame(); // A boots the game
+    }
 }
 
 void DeckGamesPage::ActivateDock() {
@@ -1069,11 +1353,10 @@ void DeckGamesPage::ActivateDock() {
 }
 
 bool DeckGamesPage::OnSecondaryAction() {
-    // Y is the direct route to the full library. The round All Software tile lives at the END of the
-    // rail, a dozen tiles to the right, so on a handheld it reads as "there is no game list" — give
-    // it a button that works from anywhere on the home screen, and advertise it in the hint bar.
-    emit OpenAllSoftware();
-    return true;
+    // Nothing. The console's home screen binds no fourth face button, and an unadvertised shortcut
+    // that opens a whole page is worse than none: the round All Software tile sits immediately
+    // behind the last game instead, which is the route the screen actually shows you.
+    return false;
 }
 
 bool DeckGamesPage::OnBack() {
@@ -1085,7 +1368,7 @@ bool DeckGamesPage::OnBack() {
     // On a game tile, B opens its options page (the console standard: A plays, B shows options).
     // On the dock, B does nothing — leaving the console is the dock's Power item, so an accidental
     // Back never drops the user into the old desktop window.
-    if (zone == Zone::Rail && !IsEmpty()) {
+    if (zone == Zone::Rail && !IsEmpty() && !OnPlaceholder()) {
         EmitCurrentGame();
     }
     return true;
@@ -1123,28 +1406,31 @@ void DeckGamesPage::EmitCurrentGame() {
 }
 
 std::vector<DeckHint> DeckGamesPage::Hints() const {
+    // Left to right, confirm LAST — the console pins A to the right edge of the bar and builds the
+    // rest of the row leftwards from it, so A never moves as the other hints come and go.
     if (grid_mode) {
         return {
-            {QStringLiteral("A"), tr("Play")},
-            {QStringLiteral("+"), tr("Options")},
             {QStringLiteral("B"), tr("Back")},
+            {QStringLiteral("+"), tr("Options")},
+            {QStringLiteral("A"), tr("OK")},
         };
     }
-    if (zone == Zone::Avatar) {
-        return {
-            {QStringLiteral("A"), tr("Users")},
-            {QStringLiteral("Y"), tr("All Software")},
-        };
+    if (zone == Zone::Avatar || zone == Zone::Dock) {
+        return {{QStringLiteral("A"), tr("OK")}};
     }
-    if (zone == Zone::Dock) {
-        return {
-            {QStringLiteral("A"), tr("Open")},
-            {QStringLiteral("Y"), tr("All Software")},
-        };
+    // On an empty slot the row keeps its shape and A simply fades: the console advertises the button
+    // and does nothing with it, rather than reflowing the bar every time the cursor crosses a gap.
+    if (OnPlaceholder()) {
+        return {{QStringLiteral("A"), tr("OK"), true}};
     }
-    return {
-        {QStringLiteral("A"), tr("Play")},
-        {QStringLiteral("Y"), tr("All Software")},
+    std::vector<DeckHint> hints{
         {QStringLiteral("+"), tr("Options")},
     };
+    // Only the suspended title's own tile offers to close it.
+    if (playing_id != 0 &&
+        rail->currentIndex().data(GameListItemPath::ProgramIdRole).toULongLong() == playing_id) {
+        hints.push_back({QStringLiteral("X"), tr("Close Software")});
+    }
+    hints.push_back({QStringLiteral("A"), tr("OK")});
+    return hints;
 }

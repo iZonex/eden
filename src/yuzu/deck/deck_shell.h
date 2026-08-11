@@ -81,6 +81,8 @@ protected:
 
 signals:
     void GameChosen(QString path, u64 program_id);
+    /// X on the suspended title's home tile — shut that title down rather than resuming it.
+    void CloseSoftwareRequested();
     void ExitRequested();
     void SaveConfigRequested();
     void RemoveUpdateRequested(u64 program_id);
