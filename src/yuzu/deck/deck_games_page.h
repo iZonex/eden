@@ -22,7 +22,6 @@ class PlayTimeManager;
 class GameListModel;
 class DockBar;
 class QListView;
-class QLabel;
 class QTimer;
 class QModelIndex;
 class QSortFilterProxyModel;
@@ -47,8 +46,8 @@ public:
 
     bool OnNavigate(Qt::Key key) override;
     bool OnAccept() override;
-    bool OnPrimaryAction() override;   // X — toggle the "See all" full-library grid
-    bool OnSecondaryAction() override; // Y — favorite
+    bool OnPrimaryAction() override;   // X — close the suspended title
+    bool OnSecondaryAction() override; // Y — unbound on the home screen, as on the console
     bool OnStart() override;           // + — open the selected game's options
     bool OnBack() override;
     std::vector<DeckHint> Hints() const override;
@@ -80,7 +79,12 @@ signals:
     void OpenAlbum();       ///< HOME dock Album — the screenshots gallery
     void OpenAllSoftware(); ///< the rail-end All Software button — the full library grid page
     void SleepRequested();  ///< HOME dock Sleep — put the Deck to sleep
+    /// X on the tile of the title suspended to HOME — shut it down instead of resuming it.
+    void CloseSoftwareRequested();
     void ExitRequested();
+
+protected:
+    void paintEvent(QPaintEvent* event) override; ///< the page ground + its pearlescent wash
 
 private:
     enum class Zone { Rail, Dock, Avatar };
@@ -100,7 +104,11 @@ private:
     void SetGridMode(bool on); ///< toggle the rail between a single row and a full wrapping grid
     int GridColumns() const;   ///< tiles per row in grid mode (for Up/Down)
     void UpdateGameTitle();    ///< refresh the selected game's name label above the rail
+    void UpdatePadCount();     ///< pad the home row out to a full screen of slots (see PadModel)
+    bool OnPlaceholder() const; ///< the cursor is parked on an empty home slot — nothing to act on
     void EmitCurrentGame();     ///< open the options page (B)
+    void BeginPress();          ///< dip the chosen tile; the action runs when the dip rebounds
+    void ActivateCurrentTile(); ///< what A on the rail finally does, once the press has played
     void PlayCurrentGame();     ///< boot the game directly (A)
     void ActivateDock();
     QModelIndex CurrentGameIndex() const;
@@ -110,7 +118,8 @@ private:
     DeckLibraryStats& stats; ///< first-seen / last-played history — the rail's ordering key
     QSortFilterProxyModel* filter = nullptr; ///< Shows only real games (see LibraryFilter).
     QSortFilterProxyModel* head = nullptr; ///< caps the home rail to the recent N (uncapped in the grid)
-    QAbstractItemModel* rail_model = nullptr; ///< head + trailing "All Software" tile; the rail's model
+    QAbstractItemModel* rail_model = nullptr; ///< head + empty slots + "All Software"; the rail's model
+    QAbstractListModel* pads = nullptr; ///< the empty home slots that pad a short row out to the edge
     QAbstractListModel* all_software = nullptr; ///< the trailing tile's model (hidden in grid mode)
     QListView* rail = nullptr;
     class DeckGameDelegate* delegate = nullptr;
@@ -119,10 +128,17 @@ private:
     class StatusCluster* status = nullptr; ///< time + wifi + battery graphic (top-right)
     class AvatarBadge* avatar = nullptr; ///< the active user's profile picture + name (top-left)
     Common::UUID active_uuid{}; ///< the active (last-opened) user — A on the avatar opens their page
-    QLabel* game_title = nullptr; ///< the selected game's name, above the rail
+    class GameTitleLabel* game_title = nullptr; ///< the selected game's name, above the rail
+    u64 playing_id = 0; ///< the title suspended to HOME, so its tile can offer X Close Software
     QTimer* clock_timer = nullptr;
     QTimer* shimmer_timer = nullptr; ///< advances the selection-shimmer animation
     int phase = 0;                   ///< shimmer animation phase (0-359)
+    /// The selection settling onto a newly-arrived-at tile (0 → 1), and the dip-and-rebound the tile
+    /// makes when it is chosen. Both drive the delegate; the press one also gates the launch, so the
+    /// game boots on the rebound rather than under a frozen screen.
+    class QVariantAnimation* focus_anim = nullptr;
+    class QVariantAnimation* press_anim = nullptr;
+    bool pressing = false; ///< a press animation is running; swallow further A presses
 
     Zone zone = Zone::Rail;
     bool grid_mode = false; ///< "See all": rail reflowed into a full wrapping grid of every game
