@@ -694,8 +694,8 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QObject* parent) {
         {Settings::EnumMetadata<Settings::DeckFaceLayout>::Index(),
          {
              PAIR(DeckFaceLayout, Auto, tr("Automatic")),
-             PAIR(DeckFaceLayout, Nintendo, tr("Nintendo controller")),
-             PAIR(DeckFaceLayout, SwapXY, tr("Steam Deck built-in")),
+             PAIR(DeckFaceLayout, Nintendo, tr("Steam Deck / Nintendo controller")),
+             PAIR(DeckFaceLayout, SwapXY, tr("X and Y crossed")),
              PAIR(DeckFaceLayout, SwapAll, tr("Other Xbox-style pad")),
          }});
 

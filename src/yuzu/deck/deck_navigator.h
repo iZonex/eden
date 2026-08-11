@@ -125,9 +125,10 @@ private:
     bool active = false;
 
     DeckFaceLayout face_layout = DeckFaceLayout::Auto;
-    // What Auto settled on. Defaults to the Deck's own controls: this shell exists for the Deck, and
-    // when no pad is enumerated at all (keyboard-driven desktop testing) the choice is moot anyway.
-    DeckFaceLayout resolved = DeckFaceLayout::SwapXY;
+    // What Auto settled on. Defaults to the Deck's own controls — which cross nothing. This shell
+    // exists for the Deck, and when no pad is enumerated at all (keyboard-driven desktop testing)
+    // the choice is moot anyway.
+    DeckFaceLayout resolved = DeckFaceLayout::Nintendo;
     int layout_poll_ticks = 0;
 
     // Edge-detection latch: a button fires once on the transition to pressed.
