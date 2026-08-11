@@ -166,6 +166,8 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
         // Switch HOME Sleep — put the Deck itself to sleep (systemd handles the suspend on SteamOS).
         QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("suspend")});
     });
+    connect(games_page, &DeckGamesPage::CloseSoftwareRequested, this,
+            &DeckShell::CloseSoftwareRequested);
     connect(games_page, &DeckGamesPage::ExitRequested, this, &DeckShell::ExitRequested);
 
     connect(settings_page, &DeckSettingsPage::SaveConfigRequested, this,

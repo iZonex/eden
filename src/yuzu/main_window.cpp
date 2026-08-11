@@ -1232,6 +1232,24 @@ void MainWindow::InitializeWidgets() {
         }
         OnGameListLoadFile(path, program_id);
     });
+    // X on the suspended title's home tile: the console's "Close Software". Unpause first so the emu
+    // thread can process the shutdown cleanly — the same order the "switching to a different title"
+    // path above uses — then tear the title down and leave the user on the home screen.
+    connect(deck_shell, &DeckShell::CloseSoftwareRequested, this, [this] {
+        if (!game_suspended) {
+            return;
+        }
+        game_suspended = false;
+        suspended_program_id = 0;
+        suspended_game_path.clear();
+        deck_shell->SetSuspendedGame(0);
+        if (QtCommon::emu_thread != nullptr && !QtCommon::emu_thread->IsRunning()) {
+            QtCommon::emu_thread->SetRunning(true);
+        }
+        // ShutdownGame ends in OnEmulationStopped, which already brings the console shell back to
+        // the front while big_picture_active — so there is nothing to restore here afterwards.
+        ShutdownGame();
+    });
     // Console power-off always quits the app — the old desktop UI is never shown from the console
     // front-end (on a Deck this returns to Steam). The desktop UI remains reachable only by
     // launching with Big Picture disabled.
