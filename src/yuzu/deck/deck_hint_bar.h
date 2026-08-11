@@ -12,17 +12,22 @@ class HIDCore;
 }
 
 class QHBoxLayout;
-class DeckControllerIndicator;
+class DeckPlayModeIndicator;
 
 /// A single button hint: a Switch-style button glyph followed by a short action label.
+///
+/// Order matters: the bar lays hints out left to right in the order given, and the console always
+/// puts the confirm button LAST, hard against the right edge. List A (or B, where it confirms) at
+/// the end of the vector.
 struct DeckHint {
     QString glyph;  ///< Button letter, e.g. "A", "B", "X", "Y", "L", "R".
-    QString action; ///< What the button does here, e.g. "Play".
+    QString action; ///< What the button does here, e.g. "OK".
+    bool dim = false; ///< The button is advertised but inert here (e.g. A on an empty home slot).
 };
 
 /**
- * The persistent bottom bar: a live indicator of the connected controllers on the left, and the
- * current screen's button hints on the right. Pages call SetHints() when their controls change.
+ * The persistent bottom bar: the play-mode indicator on the left, and the current screen's button
+ * hints on the right. Pages call SetHints() when their controls change.
  */
 class DeckHintBar : public QWidget {
     Q_OBJECT
@@ -38,5 +43,5 @@ protected:
 
 private:
     QHBoxLayout* row = nullptr;
-    DeckControllerIndicator* controllers = nullptr;
+    DeckPlayModeIndicator* play_mode = nullptr;
 };

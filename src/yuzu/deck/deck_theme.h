@@ -3,11 +3,15 @@
 
 #pragma once
 
+#include <QBrush>
 #include <QColor>
 #include <QPalette>
+#include <QPointF>
 #include <QString>
 
+class QPainter;
 class QPixmap;
+class QWidget;
 
 /**
  * Visual constants and helpers for the Big Picture / Steam Deck front-end. The look mirrors the
@@ -29,6 +33,8 @@ inline QColor kAccentGlow{0x2c, 0xe6, 0xff};  // brighter cyan for the selection
 inline QColor kAccentSoft{0x12, 0x33, 0x3a}; // focused-row / selection wash
 inline QColor kText{0xf2, 0xf2, 0xf2};       // primary text
 inline QColor kTextDim{0x9a, 0x9a, 0x9a};    // muted text
+// The console's empty home slots are LIGHTER than the ground on both themes — they read as vacant
+// seats cut into the page, not as darker holes punched through it.
 inline QColor kPlaceholder{0x3d, 0x3d, 0x3d}; // empty tile fill
 inline QColor kPlaceholderBorder{0x4c, 0x4c, 0x4c};
 inline QColor kToggleOff{0x56, 0x56, 0x56};
@@ -72,6 +78,20 @@ inline constexpr int kHintBarHeight = 54;
 inline constexpr int kHeaderHeight = 62;
 inline constexpr int kCornerRadius = 10;
 
+/// The console's iridescent selection sweep (blue → violet → pink → cyan) around `center`, rotated to
+/// `phase` degrees. EVERY focus affordance in the shell strokes with this one brush — game tiles,
+/// empty home slots, dock icons, the user avatar — so the whole screen shimmers in step, which is
+/// what the console actually does. Anything that draws its own selection colour reads as a different
+/// UI the moment two of them are on screen at once.
+QBrush SelectionSweep(const QPointF& center, int phase);
+
+/// Fills `widget`'s rect with the page ground: the flat theme colour plus, on Basic White, the faint
+/// pearlescent wash the console lays across the BOTTOM of the screen (two soft spectral pools in the
+/// corners under a gentle lift). The wash is positioned in TOP-LEVEL coordinates, so each widget that
+/// paints its own ground draws its slice of one continuous gradient rather than restarting it —
+/// widgets that leave their ground to the palette need no change. Basic Black is flat, as on console.
+void PaintGround(QPainter& painter, const QWidget& widget);
+
 /// The application-wide stylesheet for Big Picture mode.
 QString StyleSheet();
 
@@ -81,12 +101,13 @@ QString StyleSheet();
 QPalette Palette();
 
 /// Renders a Switch-style button glyph (e.g. "A", "B", "X", "Y", "L", "R"): a solid dark circle
-/// with a white letter. `diameter` is the badge size in device-independent pixels.
-QPixmap ButtonGlyph(const QString& label, int diameter);
+/// with a white letter. `diameter` is the badge size in device-independent pixels. `opacity` < 1
+/// fades the whole badge, for a button the current screen advertises but cannot act on.
+QPixmap ButtonGlyph(const QString& label, int diameter, qreal opacity = 1.0);
 
 /// Loads one of the bundled deck SVG icons (":/deck/<name>", white-filled) at the given pixel size,
 /// HiDPI-aware, tinted to `color` (defaults to the theme text colour). `name` is an alias from
-/// deck.qrc: "games", "controllers", "settings", "power", "search".
+/// deck.qrc: "games", "controllers", "settings", "power", "search", "console".
 QPixmap Icon(const QString& name, int size, const QColor& color);
 inline QPixmap Icon(const QString& name, int size) {
     return Icon(name, size, kText);
