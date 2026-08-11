@@ -44,18 +44,6 @@ bool DeviceIsBuiltIn(const Common::ParamPackage& device) {
            display.find("Steam Controller") != std::string::npos;
 }
 
-/// True for the pad Steam Input synthesises on the Deck: Valve vendor 0x28DE, product 0x11FF, the
-/// "Steam Virtual Gamepad". Worth naming, because the one physical Deck shows up through it under
-/// more than one face ("Steam Deck Controller" on one port, "Xbox One Controller" on another) and
-/// they all carry this same guid — so the guid is the only identity that covers the pad as a whole.
-bool DeviceIsSteamVirtualPad(const Common::ParamPackage& device) {
-    // SDL guid string, byte-wise: [bus][vendor][product][version]. Vendor sits at chars 8..11 and
-    // product at 16..19, both little-endian.
-    const std::string guid = device.Get("guid", "");
-    return guid.size() >= 20 && guid.compare(8, 4, "de28") == 0 &&
-           guid.compare(16, 4, "ff11") == 0;
-}
-
 /// True when SDL fully understands the device as a *gamepad* — i.e. it has an SDL_Gamepad behind it,
 /// so its buttons and axes carry real, semantic bindings (this is south, that is the left trigger).
 ///
@@ -280,23 +268,18 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     // sees as A is Switch A, B is B, etc. The standard layout below is already label-ordered, so
     // this only applies to SDL's mapping.
     //
-    // The two pairs need different treatment on the Deck, which took a while to pin down. Measured
-    // on the hardware: the kernel exposes the built-in pad's face buttons as BTN_SOUTH, BTN_EAST,
-    // BTN_NORTH, BTN_WEST — raw indices 0..3 in that order, so raw 2 is the TOP button (printed Y)
-    // and raw 3 the LEFT one (printed X). But SDL's own entry for this pad resolves NORTH to raw 3
-    // and WEST to raw 2: it already has that pair crossed. So X/Y arrive label-correct with no swap
-    // of ours, while A/B still need one — and swapping both, as we did, simply moved the fault from
-    // one pair to the other.
-    const bool swap_north_west = !DeviceIsSteamVirtualPad(device);
-    if (button_mapping.contains(Settings::NativeButton::A) &&
-        button_mapping.contains(Settings::NativeButton::B)) {
-        std::swap(button_mapping[Settings::NativeButton::A],
-                  button_mapping[Settings::NativeButton::B]);
-    }
-    if (swap_north_west && button_mapping.contains(Settings::NativeButton::X) &&
-        button_mapping.contains(Settings::NativeButton::Y)) {
-        std::swap(button_mapping[Settings::NativeButton::X],
-                  button_mapping[Settings::NativeButton::Y]);
+    // Both pairs need it, including on the Deck's own controls. This once exempted the Steam virtual
+    // pad from the X/Y half, on the reading that SDL already had that pair crossed for it. Measured
+    // on the hardware instead of reasoned about: on the Deck's virtual pad the button PRINTED X
+    // reports evdev code 0x133 and the one printed Y reports 0x134, which SDL enumerates as raw 2
+    // and raw 3. SDL's default binding sends npad X to NORTH and npad Y to WEST, which resolve to
+    // raw 3 and raw 2 — so without a swap npad X lands on the button printed Y and npad Y on the one
+    // printed X. Exempting the pad is what crossed it.
+    for (const auto pair : {std::pair{Settings::NativeButton::A, Settings::NativeButton::B},
+                            std::pair{Settings::NativeButton::X, Settings::NativeButton::Y}}) {
+        if (button_mapping.contains(pair.first) && button_mapping.contains(pair.second)) {
+            std::swap(button_mapping[pair.first], button_mapping[pair.second]);
+        }
     }
 
     // Fill in the standard layout for a pad SDL gave us nothing for. Deliberately NOT applied on top
@@ -340,12 +323,12 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     controller.DisableConfiguration();
     controller.SaveCurrentConfig();
 
-    // Log every face button, not just A: the two pairs are corrected independently now, so a report
-    // of "the wrong thing happened" has to be checkable against all four at once.
+    // Log every face button, not just A: a report of "the wrong thing happened" has to be checkable
+    // against all four at once, against the raw index each one actually ended up on.
     LOG_INFO(Input,
-             "Steam Deck: mapped '{}' (A/B swapped: yes, X/Y swapped: {}) — A=[{}] B=[{}] X=[{}] "
-             "Y=[{}] LStick=[{}]",
-             device.Get("display", "?"), swap_north_west ? "yes" : "no",
+             "Steam Deck: mapped '{}' (both face pairs swapped to the printed labels) — A=[{}] "
+             "B=[{}] X=[{}] Y=[{}] LStick=[{}]",
+             device.Get("display", "?"),
              controller.GetButtonParam(Settings::NativeButton::A).Serialize(),
              controller.GetButtonParam(Settings::NativeButton::B).Serialize(),
              controller.GetButtonParam(Settings::NativeButton::X).Serialize(),
