@@ -275,10 +275,10 @@ void ApplyDefaultMapping(InputCommon::InputSubsystem& input_subsystem,
     // and raw 3. SDL's default binding sends npad X to NORTH and npad Y to WEST, which resolve to
     // raw 3 and raw 2 — so without a swap npad X lands on the button printed Y and npad Y on the one
     // printed X. Exempting the pad is what crossed it.
-    for (const auto pair : {std::pair{Settings::NativeButton::A, Settings::NativeButton::B},
-                            std::pair{Settings::NativeButton::X, Settings::NativeButton::Y}}) {
-        if (button_mapping.contains(pair.first) && button_mapping.contains(pair.second)) {
-            std::swap(button_mapping[pair.first], button_mapping[pair.second]);
+    for (const auto& [lhs, rhs] : {std::pair{Settings::NativeButton::A, Settings::NativeButton::B},
+                                   std::pair{Settings::NativeButton::X, Settings::NativeButton::Y}}) {
+        if (button_mapping.contains(lhs) && button_mapping.contains(rhs)) {
+            std::swap(button_mapping[lhs], button_mapping[rhs]);
         }
     }
 
