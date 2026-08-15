@@ -1331,6 +1331,10 @@ void DeckGamesPage::ActivateCurrentTile() {
 }
 
 void DeckGamesPage::ActivateDock() {
+    // The page navigates by its own copy of the item list; a mismatch leaves an item nothing can
+    // reach, which is exactly how the last one went missing.
+    static_assert(DockBar::kCount == DockCount,
+                  "the dock's items and the page's list have drifted apart");
     LOG_INFO(Frontend, "Deck home: dock item {} activated", dock->Current());
     switch (dock->Current()) {
     case DockBar::kAlbum:

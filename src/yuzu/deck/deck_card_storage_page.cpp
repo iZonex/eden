@@ -29,7 +29,6 @@ namespace {
 constexpr int kCellW = 200;
 constexpr int kCellH = 200; // square, like a card standing in its case
 constexpr int kSpacing = 20;
-constexpr int kIconGutter = 72;
 constexpr int kPathRole = Qt::UserRole + 1;
 constexpr int kSizeRole = Qt::UserRole + 2;
 
@@ -87,7 +86,6 @@ DeckCardStoragePage::DeckCardStoragePage(QWidget* parent) : DeckPage(parent) {
 
     auto* body = new QHBoxLayout();
     body->setContentsMargins(0, 0, 0, 0);
-    body->addSpacing(kIconGutter);
     body->addWidget(grid, 1);
     outer->addLayout(body, 1);
 
@@ -226,21 +224,6 @@ void DeckCardStoragePage::Reload() {
 
 void DeckCardStoragePage::OnActivated() {
     Reload();
-}
-
-void DeckCardStoragePage::paintEvent(QPaintEvent* event) {
-    DeckPage::paintEvent(event);
-    // The icon column the console screens keep on the left. Drawn rather than built from widgets
-    // because nothing in it is interactive yet.
-    QPainter painter{this};
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(QPen{DeckTheme::kTextDim, 2});
-    const int x = 48 + kIconGutter / 2;
-    int y = 150;
-    for (int i = 0; i < 3; ++i) {
-        painter.drawRoundedRect(QRectF(x - 11, y - 11, 22, 22), 5, 5);
-        y += 46;
-    }
 }
 
 std::vector<DeckHint> DeckCardStoragePage::Hints() const {
