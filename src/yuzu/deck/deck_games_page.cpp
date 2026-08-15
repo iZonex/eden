@@ -356,14 +356,14 @@ protected:
         pill_path.addRoundedRect(pill, pill.height() / 2, pill.height() / 2);
         p.fillPath(pill_path, DeckTheme::kSurface);
 
-        const std::array<QString, kCount> labels{QObject::tr("Album"), QObject::tr("Controllers"),
-                                                 QObject::tr("Settings"), QObject::tr("Sleep"),
-                                                 QObject::tr("Power")};
+        const std::array<QString, kCount> labels{
+            QObject::tr("Album"),        QObject::tr("Controllers"), QObject::tr("Settings"),
+            QObject::tr("Card Storage"), QObject::tr("Sleep"),       QObject::tr("Power")};
         // The Switch dock colours app icons and greys the system ones. Album is our lone "app"; the
         // rest (Controllers/Settings/Sleep/Power) are system icons, drawn grey.
         const std::array<QColor, kCount> tints{QColor(0x3a, 0x9b, 0xd8), DeckTheme::kTextDim,
                                                DeckTheme::kTextDim, DeckTheme::kTextDim,
-                                               DeckTheme::kTextDim};
+                                               DeckTheme::kTextDim, DeckTheme::kTextDim};
         int focused = -1;
         for (int i = 0; i < kCount; ++i) {
             const bool sel = (i == current) && zone_active;
