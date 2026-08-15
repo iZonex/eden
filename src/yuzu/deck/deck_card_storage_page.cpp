@@ -50,6 +50,10 @@ QString TitleFromFilename(const QString& stem) {
 } // namespace
 
 DeckCardStoragePage::DeckCardStoragePage(QWidget* parent) : DeckPage(parent) {
+    // Pages share one stack, and a stack is as tall as its tallest page wants to be. A page that
+    // asks for room it does not need pushes the bar with the button hints off the bottom of every
+    // other screen -- so this one asks for none.
+    setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(48, 40, 48, 24);
     outer->setSpacing(16);
@@ -87,9 +91,8 @@ DeckCardStoragePage::DeckCardStoragePage(QWidget* parent) : DeckPage(parent) {
     body->addWidget(grid, 1);
     outer->addLayout(body, 1);
 
-    placeholder = new QLabel(tr("No cards here.\n\nA compressed title dropped into a game folder "
-                                "shows up as a card you can put in."),
-                             this);
+    placeholder = new QLabel(tr("No cards here."), this);
+    placeholder->setWordWrap(true);
     placeholder->setAlignment(Qt::AlignCenter);
     placeholder->setVisible(false);
     outer->addWidget(placeholder, 1);
