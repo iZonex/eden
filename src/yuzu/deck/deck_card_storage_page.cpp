@@ -8,7 +8,9 @@
 #include <QLabel>
 #include <QListView>
 #include <QPainter>
+#include <QIcon>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QThread>
@@ -140,8 +142,28 @@ void DeckCardStoragePage::Reload() {
                         dir.deep_scan ? QDirIterator::Subdirectories : QDirIterator::NoIteratorFlags};
         while (it.hasNext()) {
             const QFileInfo info{it.next()};
-            auto* item = new QStandardItem(TitleFromFilename(info.completeBaseName()) +
-                                           QStringLiteral("\n") + Human(info.size()));
+            // A dump can introduce itself: packers leave the small control archive alone, so the
+            // name and the box art are readable without unpacking a gigabyte to find them.
+            QString label = TitleFromFilename(info.completeBaseName());
+            QPixmap art;
+            FileSys::RealVfsFilesystem vfs;
+            if (const auto file = vfs.OpenFile(info.absoluteFilePath().toStdString(),
+                                               FileSys::OpenMode::Read)) {
+                if (const auto shown = FileSys::ReadNszPresentation(file)) {
+                    if (!shown->title.empty()) {
+                        label = QString::fromStdString(shown->title);
+                    }
+                    if (!shown->icon.empty()) {
+                        art.loadFromData(shown->icon.data(),
+                                         static_cast<uint>(shown->icon.size()));
+                    }
+                }
+            }
+            auto* item = new QStandardItem(label + QStringLiteral("\n") + Human(info.size()));
+            if (!art.isNull()) {
+                item->setIcon(QIcon{art.scaled(kCellW, kCellW - 40, Qt::KeepAspectRatio,
+                                               Qt::SmoothTransformation)});
+            }
             item->setData(info.absoluteFilePath(), kPathRole);
             item->setData(info.size(), kSizeRole);
             item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);

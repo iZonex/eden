@@ -11,7 +11,10 @@
 #include "core/crypto/aes_util.h"
 #include "core/crypto/key_manager.h"
 #include "core/file_sys/ncz.h"
+#include "core/file_sys/content_archive.h"
+#include "core/file_sys/control_metadata.h"
 #include "core/file_sys/partition_filesystem.h"
+#include "core/file_sys/romfs.h"
 #include "core/loader/loader.h"
 #include "core/file_sys/vfs/vfs.h"
 
@@ -341,6 +344,55 @@ bool IsNsz(const VirtualFile& file) {
         }
     }
     return false;
+}
+
+std::optional<NszPresentation> ReadNszPresentation(const VirtualFile& nsz) {
+    if (nsz == nullptr) {
+        return std::nullopt;
+    }
+    const PartitionFilesystem pfs{nsz};
+    if (pfs.GetStatus() != Loader::ResultStatus::Success) {
+        return std::nullopt;
+    }
+    for (const VirtualFile& inner : pfs.GetFiles()) {
+        const std::string name = inner->GetName();
+        // Only the plain archives are worth opening, and the metadata one is not the control one.
+        if (inner->GetExtension() != "nca" || name.ends_with(".cnmt.nca")) {
+            continue;
+        }
+        const NCA nca{inner};
+        if (nca.GetStatus() != Loader::ResultStatus::Success ||
+            nca.GetType() != NCAContentType::Control) {
+            continue;
+        }
+        const auto romfs = nca.GetRomFS();
+        if (romfs == nullptr) {
+            continue;
+        }
+        const auto extracted = ExtractRomFS(romfs);
+        if (extracted == nullptr) {
+            continue;
+        }
+        NszPresentation out;
+        auto nacp_file = extracted->GetFile("control.nacp");
+        if (nacp_file == nullptr) {
+            nacp_file = extracted->GetFile("Control.nacp");
+        }
+        if (nacp_file != nullptr) {
+            out.title = NACP{nacp_file}.GetApplicationName();
+        }
+        // Whichever language the dump happens to carry; the picture is the same in all of them.
+        for (const VirtualFile& file : extracted->GetFiles()) {
+            if (file->GetName().starts_with("icon_")) {
+                out.icon = file->ReadAllBytes();
+                break;
+            }
+        }
+        if (!out.title.empty() || !out.icon.empty()) {
+            return out;
+        }
+    }
+    return std::nullopt;
 }
 
 bool ConvertNszToNsp(const VirtualFile& nsz, const VirtualFile& out,
