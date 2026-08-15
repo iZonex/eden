@@ -32,6 +32,7 @@ class DeckControllersPage;
 class DeckSettingsPage;
 class DeckUsersPage;
 class DeckAlbumPage;
+class DeckCardStoragePage;
 class DeckAllSoftwarePage;
 class GameListModel;
 class QStackedWidget;
@@ -130,6 +131,7 @@ private:
     DeckSettingsPage* settings_page = nullptr;
     DeckUsersPage* users_page = nullptr;
     DeckAlbumPage* album_page = nullptr;
+    DeckCardStoragePage* card_storage_page = nullptr;
     DeckAllSoftwarePage* all_software_page = nullptr;
     // Where the detail page was opened from, so B goes back there instead of always dropping to the
     // home screen — otherwise opening a game's options from All Software costs you your place in a

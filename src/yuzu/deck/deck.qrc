@@ -15,5 +15,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
     <file alias="sleep">icons/sleep.svg</file>
     <file alias="filter">icons/filter.svg</file>
     <file alias="sort">icons/sort.svg</file>
+    <file alias="cards">icons/cards.svg</file>
   </qresource>
 </RCC>
