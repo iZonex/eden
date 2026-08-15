@@ -13,6 +13,7 @@
 #include "core/file_sys/ncz.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/control_metadata.h"
+#include "core/file_sys/nca_metadata.h"
 #include "core/file_sys/partition_filesystem.h"
 #include "core/file_sys/romfs.h"
 #include "core/loader/loader.h"
@@ -354,6 +355,30 @@ std::optional<NszPresentation> ReadNszPresentation(const VirtualFile& nsz) {
     if (pfs.GetStatus() != Loader::ResultStatus::Success) {
         return std::nullopt;
     }
+    NszPresentation out;
+
+    // The metadata archive says what this dump is and which title it belongs to. It is always tiny,
+    // so a packer never touches it.
+    for (const VirtualFile& inner : pfs.GetFiles()) {
+        if (!inner->GetName().ends_with(".cnmt.nca")) {
+            continue;
+        }
+        const NCA meta{inner};
+        if (meta.GetStatus() != Loader::ResultStatus::Success || meta.GetSubdirectories().empty()) {
+            continue;
+        }
+        for (const VirtualFile& entry : meta.GetSubdirectories()[0]->GetFiles()) {
+            if (entry->GetExtension() != "cnmt") {
+                continue;
+            }
+            const CNMT cnmt{entry};
+            out.title_id = cnmt.GetTitleID();
+            out.addon = cnmt.GetType() != TitleType::Application;
+            break;
+        }
+        break;
+    }
+
     for (const VirtualFile& inner : pfs.GetFiles()) {
         const std::string name = inner->GetName();
         // Only the plain archives are worth opening, and the metadata one is not the control one.
@@ -373,7 +398,6 @@ std::optional<NszPresentation> ReadNszPresentation(const VirtualFile& nsz) {
         if (extracted == nullptr) {
             continue;
         }
-        NszPresentation out;
         auto nacp_file = extracted->GetFile("control.nacp");
         if (nacp_file == nullptr) {
             nacp_file = extracted->GetFile("Control.nacp");
@@ -392,7 +416,8 @@ std::optional<NszPresentation> ReadNszPresentation(const VirtualFile& nsz) {
             return out;
         }
     }
-    return std::nullopt;
+    // An update usually carries no control archive of its own; its identity is still worth having.
+    return out.title_id != 0 ? std::optional{out} : std::nullopt;
 }
 
 bool ConvertNszToNsp(const VirtualFile& nsz, const VirtualFile& out,
