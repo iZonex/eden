@@ -20,6 +20,7 @@
 #include "yuzu/deck/deck_hint_bar.h"
 #include "yuzu/deck/deck_navigator.h"
 #include "yuzu/deck/deck_album_page.h"
+#include "yuzu/deck/deck_card_storage_page.h"
 #include "yuzu/deck/deck_all_software_page.h"
 #include "yuzu/deck/deck_settings_page.h"
 #include "yuzu/deck/deck_shell.h"
@@ -83,6 +84,7 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     settings_page = new DeckSettingsPage(system, stack);
     users_page = new DeckUsersPage(system, stack);
     album_page = new DeckAlbumPage(stack);
+    card_storage_page = new DeckCardStoragePage(stack);
     all_software_page =
         new DeckAllSoftwarePage(games_page->LibraryModel(), stats, play_time_manager, stack);
     stack->addWidget(games_page);
@@ -91,6 +93,7 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     stack->addWidget(settings_page);
     stack->addWidget(users_page);
     stack->addWidget(album_page);
+    stack->addWidget(card_storage_page);
     stack->addWidget(all_software_page);
     root_layout->addWidget(stack, 1);
 
@@ -151,6 +154,14 @@ DeckShell::DeckShell(FileSys::VirtualFilesystem vfs, FileSys::ManualContentProvi
     });
     connect(games_page, &DeckGamesPage::OpenSettings, this, [this] { ShowPage(settings_page); });
     connect(games_page, &DeckGamesPage::OpenAlbum, this, [this] { ShowPage(album_page); });
+    connect(games_page, &DeckGamesPage::OpenCardStorage, this,
+            [this] { ShowPage(card_storage_page); });
+    // A card that went in is a title the library has never seen, so the rail has to be told.
+    connect(card_storage_page, &DeckCardStoragePage::LibraryChanged, this, [this] {
+        if (!UISettings::values.game_dirs.empty()) {
+            model->PopulateAsync(UISettings::values.game_dirs);
+        }
+    });
     connect(games_page, &DeckGamesPage::OpenAllSoftware, this,
             [this] { ShowPage(all_software_page); });
     connect(all_software_page, &DeckAllSoftwarePage::GamePlayRequested, this,
