@@ -40,6 +40,11 @@ namespace FileSys {
 struct NszPresentation {
     std::string title;
     std::vector<u8> icon;
+    /// Which title this is part of, read from the metadata archive rather than guessed from the
+    /// filename. A game and its update are two files but one thing, and the screen should say so.
+    u64 title_id = 0;
+    /// True when this dump is an update or an add-on rather than the game itself.
+    bool addon = false;
 };
 
 /// Reads the name and icon out of a dump without unpacking it. Empty fields where the dump keeps
