@@ -40,9 +40,6 @@ signals:
     /// A card finished going in, so the library has a title it did not have a moment ago.
     void LibraryChanged();
 
-protected:
-    void paintEvent(QPaintEvent* event) override; ///< the left icon column
-
 private:
     void Reload();
     void InsertSelected();

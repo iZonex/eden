@@ -90,13 +90,16 @@ protected:
 private:
     enum class Zone { Rail, Dock, Avatar };
     // Users is not here — the avatar opens the Users page.
+    // Kept in step with DockBar's own list by a static_assert where DockBar is defined -- these
+    // two drifting apart is exactly how the last item became unreachable.
     enum DockItem {
         DockAlbum = 0,
         DockControllers = 1,
         DockSettings = 2,
-        DockSleep = 3,
-        DockPower = 4,
-        DockCount = 5
+        DockCards = 3,
+        DockSleep = 4,
+        DockPower = 5,
+        DockCount = 6
     };
 
     void ResortNow(); ///< the body of Resort(), run once the event loop comes back round
