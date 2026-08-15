@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <map>
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -16,6 +18,7 @@
 #include <QThread>
 #include <QVBoxLayout>
 
+#include "core/file_sys/common_funcs.h"
 #include "core/file_sys/ncz.h"
 #include "core/file_sys/vfs/vfs_real.h"
 #include "qt_common/config/uisettings.h"
@@ -132,20 +135,33 @@ void DeckCardStoragePage::UpdateSummary() {
 
 void DeckCardStoragePage::Reload() {
     model->clear();
-    // Cards live where the games do; a dump is dropped in beside them and stays there once it is
-    // unpacked, so there is never a second place to look.
+
+    // A game and its update are two files and one thing. The library merges them, and a shelf that
+    // did not would be listing bookkeeping as if it were software.
+    struct Group {
+        QStringList paths;
+        QString label;
+        QPixmap art;
+        qint64 size = 0;
+        int parts = 0;
+    };
+    std::map<QString, Group> groups;
+
     for (const auto& dir : UISettings::values.game_dirs) {
         if (dir.path.empty()) {
             continue;
         }
-        QDirIterator it{QString::fromStdString(dir.path), {QStringLiteral("*.nsz"), QStringLiteral("*.NSZ")}, QDir::Files,
-                        dir.deep_scan ? QDirIterator::Subdirectories : QDirIterator::NoIteratorFlags};
+        QDirIterator it{QString::fromStdString(dir.path),
+                        {QStringLiteral("*.nsz"), QStringLiteral("*.NSZ")}, QDir::Files,
+                        dir.deep_scan ? QDirIterator::Subdirectories
+                                      : QDirIterator::NoIteratorFlags};
         while (it.hasNext()) {
             const QFileInfo info{it.next()};
-            // A dump can introduce itself: packers leave the small control archive alone, so the
-            // name and the box art are readable without unpacking a gigabyte to find them.
             QString label = TitleFromFilename(info.completeBaseName());
             QPixmap art;
+            QString key = label; // fallback for a dump that will not say what it is
+            bool addon = false;
+
             FileSys::RealVfsFilesystem vfs;
             if (const auto file = vfs.OpenFile(info.absoluteFilePath().toStdString(),
                                                FileSys::OpenMode::Read)) {
@@ -154,23 +170,47 @@ void DeckCardStoragePage::Reload() {
                         label = QString::fromStdString(shown->title);
                     }
                     if (!shown->icon.empty()) {
-                        art.loadFromData(shown->icon.data(),
-                                         static_cast<uint>(shown->icon.size()));
+                        art.loadFromData(shown->icon.data(), static_cast<uint>(shown->icon.size()));
                     }
+                    if (shown->title_id != 0) {
+                        key = QStringLiteral("%1").arg(FileSys::GetBaseTitleID(shown->title_id), 16,
+                                                       16, QLatin1Char('0'));
+                    }
+                    addon = shown->addon;
                 }
             }
-            auto* item = new QStandardItem(label + QStringLiteral("\n") + Human(info.size()));
-            if (!art.isNull()) {
-                item->setIcon(QIcon{art.scaled(kCellW, kCellW - 40, Qt::KeepAspectRatio,
-                                               Qt::SmoothTransformation)});
+
+            Group& group = groups[key];
+            group.paths.push_back(info.absoluteFilePath());
+            group.size += info.size();
+            group.parts += 1;
+            // The game names the card; an update carries no name of its own worth showing.
+            if (!addon || group.label.isEmpty()) {
+                group.label = label;
             }
-            item->setData(info.absoluteFilePath(), kPathRole);
-            item->setData(info.size(), kSizeRole);
-            item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-            item->setEditable(false);
-            model->appendRow(item);
+            if (!art.isNull() && group.art.isNull()) {
+                group.art = art;
+            }
         }
     }
+
+    for (const auto& [key, group] : groups) {
+        QString caption = group.label + QStringLiteral("\n") + Human(group.size);
+        if (group.parts > 1) {
+            caption += tr(" · %n part(s)", "", group.parts);
+        }
+        auto* item = new QStandardItem(caption);
+        if (!group.art.isNull()) {
+            item->setIcon(QIcon{group.art.scaled(kCellW, kCellW - 40, Qt::KeepAspectRatio,
+                                                 Qt::SmoothTransformation)});
+        }
+        item->setData(group.paths, kPathRole);
+        item->setData(group.size, kSizeRole);
+        item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
+        item->setEditable(false);
+        model->appendRow(item);
+    }
+
     const bool empty = model->rowCount() == 0;
     grid->setVisible(!empty);
     placeholder->setVisible(empty);
@@ -258,13 +298,17 @@ void DeckCardStoragePage::InsertSelected() {
     if (!index.isValid()) {
         return;
     }
-    const QString source = model->itemFromIndex(index)->data(kPathRole).toString();
-    const QFileInfo info{source};
-    const QString target = info.absolutePath() + QDir::separator() + info.completeBaseName() +
-                           QStringLiteral(".nsp");
-    if (QFileInfo::exists(target)) {
-        OnFinished(false, tr("There is already an unpacked copy beside this card."));
+    const QStringList sources = model->itemFromIndex(index)->data(kPathRole).toStringList();
+    if (sources.isEmpty()) {
         return;
+    }
+    for (const QString& source : sources) {
+        const QFileInfo info{source};
+        if (QFileInfo::exists(info.absolutePath() + QDir::separator() + info.completeBaseName() +
+                              QStringLiteral(".nsp"))) {
+            OnFinished(false, tr("There is already an unpacked copy beside this card."));
+            return;
+        }
     }
 
     busy = true;
@@ -272,31 +316,51 @@ void DeckCardStoragePage::InsertSelected() {
     status->setText(tr("Putting the card in…"));
     emit HintsChanged();
 
-    // The conversion reads and writes hundreds of megabytes; the shell has to keep drawing.
-    worker = QThread::create([this, source, target] {
-        FileSys::RealVfsFilesystem vfs;
-        const auto in = vfs.OpenFile(source.toStdString(), FileSys::OpenMode::Read);
-        const auto out = vfs.CreateFile(target.toStdString(), FileSys::OpenMode::ReadWrite);
-        bool ok = in != nullptr && out != nullptr;
-        if (ok) {
-            ok = FileSys::ConvertNszToNsp(in, out, [this](u64 done, u64 total) {
-                if (total == 0) {
-                    return;
-                }
-                const int percent = static_cast<int>(done * 100 / total);
-                QMetaObject::invokeMethod(
-                    this, [this, percent] { status->setText(tr("Putting the card in… %1%").arg(percent)); },
-                    Qt::QueuedConnection);
-            });
-        }
+    // Hundreds of megabytes of reading and writing; the shell has to keep drawing.
+    worker = QThread::create([this, sources] {
+        bool ok = true;
         QString message;
-        if (ok) {
-            // Only now is the compressed copy expendable.
+        int part = 0;
+        for (const QString& source : sources) {
+            ++part;
+            const QFileInfo info{source};
+            const QString target = info.absolutePath() + QDir::separator() +
+                                   info.completeBaseName() + QStringLiteral(".nsp");
+            FileSys::RealVfsFilesystem vfs;
+            const auto in = vfs.OpenFile(source.toStdString(), FileSys::OpenMode::Read);
+            const auto out = vfs.CreateFile(target.toStdString(), FileSys::OpenMode::ReadWrite);
+            ok = in != nullptr && out != nullptr;
+            if (ok) {
+                const int index_of = part;
+                const int count = static_cast<int>(sources.size());
+                ok = FileSys::ConvertNszToNsp(in, out, [this, index_of, count](u64 done, u64 total) {
+                    if (total == 0) {
+                        return;
+                    }
+                    const int percent = static_cast<int>(done * 100 / total);
+                    QMetaObject::invokeMethod(
+                        this,
+                        [this, percent, index_of, count] {
+                            status->setText(count > 1
+                                                ? tr("Putting the card in… %1%  (%2 of %3)")
+                                                      .arg(percent)
+                                                      .arg(index_of)
+                                                      .arg(count)
+                                                : tr("Putting the card in… %1%").arg(percent));
+                        },
+                        Qt::QueuedConnection);
+                });
+            }
+            if (!ok) {
+                QFile::remove(target); // never leave a half-written title behind
+                message = tr("This card could not be read. Nothing was changed.");
+                break;
+            }
+            // Only now is this part's compressed copy expendable.
             QFile::remove(source);
+        }
+        if (ok) {
             message = tr("Card is in. The title is in your library.");
-        } else {
-            QFile::remove(target); // never leave a half-written title behind
-            message = tr("This card could not be read. Nothing was changed.");
         }
         const bool result = ok;
         QMetaObject::invokeMethod(
