@@ -77,6 +77,7 @@ signals:
     void OpenUsers(Common::UUID focus); ///< open My Page focused on the chosen user (invalid = active)
     void OpenSettings();
     void OpenAlbum();       ///< HOME dock Album — the screenshots gallery
+    void OpenCardStorage(); ///< HOME dock Card Storage — compressed titles waiting to go in
     void OpenAllSoftware(); ///< the rail-end All Software button — the full library grid page
     void SleepRequested();  ///< HOME dock Sleep — put the Deck to sleep
     /// X on the tile of the title suspended to HOME — shut it down instead of resuming it.

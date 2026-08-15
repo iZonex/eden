@@ -277,13 +277,14 @@ class DockBar : public QWidget {
 public:
     // Order matches the Switch HOME dock (applicable subset): Album, Controllers, System Settings,
     // Sleep, then our own Power/Exit. No Users item — the avatar opens the Users page.
-    enum { kAlbum = 0, kControllers = 1, kSettings = 2, kSleep = 3, kPower = 4, kCount = 5 };
+    enum { kAlbum = 0, kControllers = 1, kSettings = 2, kCards = 3, kSleep = 4, kPower = 5, kCount = 6 };
 
     explicit DockBar(QWidget* parent = nullptr) : QWidget(parent) {
         setFixedHeight(150); // pill (icon 62 + pad 32) + the focused item's name below it
         names[kAlbum] = QStringLiteral("album");
         names[kControllers] = QStringLiteral("controllers");
         names[kSettings] = QStringLiteral("settings");
+        names[kCards] = QStringLiteral("cards");
         names[kSleep] = QStringLiteral("sleep");
         names[kPower] = QStringLiteral("power");
     }
@@ -1337,6 +1338,9 @@ void DeckGamesPage::ActivateDock() {
         break;
     case DockBar::kControllers:
         emit OpenControllers();
+        break;
+    case DockBar::kCards:
+        emit OpenCardStorage();
         break;
     case DockBar::kSettings:
         emit OpenSettings();
