@@ -13,7 +13,9 @@
 #include <QIcon>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QFontMetrics>
 #include <QStandardItem>
+#include <QStyledItemDelegate>
 #include <QStandardItemModel>
 #include <QThread>
 #include <QVBoxLayout>
@@ -26,11 +28,81 @@
 #include "yuzu/deck/deck_theme.h"
 
 namespace {
-constexpr int kCellW = 200;
-constexpr int kCellH = 200; // square, like a card standing in its case
-constexpr int kSpacing = 20;
+constexpr int kCellW = 272;
+constexpr int kSpacing = DeckTheme::kGridCardSpacing;
 constexpr int kPathRole = Qt::UserRole + 1;
 constexpr int kSizeRole = Qt::UserRole + 2;
+constexpr int kProgressRole = Qt::UserRole + 3; ///< 0..100 while this card is going in, else absent
+constexpr int kArtRole = Qt::UserRole + 4;
+
+/// Cards are drawn the way the library draws games -- rounded art, a caption beneath it, and the
+/// same bright ring on the focused one -- so the shelf reads as part of the console rather than as
+/// a list widget wearing its default colours.
+class CardDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const override {
+        const int caption = QFontMetrics{option.font}.height() * 2 + 12;
+        return {kCellW + 2 * DeckTheme::kGridCardMargin,
+                kCellW + caption + 2 * DeckTheme::kGridCardMargin};
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+        const bool selected = (option.state & QStyle::State_Selected) != 0;
+        const int margin = DeckTheme::kGridCardMargin;
+        const int grow = selected ? DeckTheme::kFocusGrow : 0;
+        QRect art{option.rect.left() + margin - grow, option.rect.top() + margin - grow,
+                  kCellW + 2 * grow, kCellW + 2 * grow};
+
+        QPainterPath rounded;
+        rounded.addRoundedRect(art, 18, 18);
+        painter->fillPath(rounded, DeckTheme::kSurface);
+        const QPixmap pix = index.data(kArtRole).value<QPixmap>();
+        if (!pix.isNull()) {
+            painter->save();
+            painter->setClipPath(rounded);
+            painter->drawPixmap(art, pix.scaled(art.size(), Qt::KeepAspectRatioByExpanding,
+                                                Qt::SmoothTransformation));
+            painter->restore();
+        }
+        if (selected) {
+            painter->setPen(QPen{DeckTheme::kAccentGlow, DeckTheme::kFocusRing});
+            painter->drawRoundedRect(art.adjusted(-2, -2, 2, 2), 20, 20);
+        }
+
+        // A card going in says so on its own face; there is nowhere else to look while it happens.
+        const QVariant progress = index.data(kProgressRole);
+        if (progress.isValid()) {
+            painter->fillPath(rounded, QColor{0, 0, 0, 150});
+            const int percent = std::clamp(progress.toInt(), 0, 100);
+            QRect track{art.left() + 24, art.center().y() - 6, art.width() - 48, 12};
+            QPainterPath bar;
+            bar.addRoundedRect(track, 6, 6);
+            painter->fillPath(bar, QColor{255, 255, 255, 60});
+            QRect filled = track;
+            filled.setWidth(track.width() * percent / 100);
+            QPainterPath done;
+            done.addRoundedRect(filled, 6, 6);
+            painter->fillPath(done, DeckTheme::kAccent);
+            painter->setPen(DeckTheme::kText);
+            painter->drawText(QRect{art.left(), track.bottom() + 8, art.width(), 30},
+                              Qt::AlignHCenter, QStringLiteral("%1%").arg(percent));
+        }
+
+        QRect caption{option.rect.left() + margin, art.bottom() + 8,
+                      kCellW, option.rect.bottom() - art.bottom() - 8};
+        painter->setPen(selected ? DeckTheme::kText : DeckTheme::kTextDim);
+        painter->drawText(caption, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap,
+                          index.data(Qt::DisplayRole).toString());
+        painter->restore();
+    }
+};
 
 QString Human(qint64 bytes) {
     if (bytes >= 1024LL * 1024 * 1024) {
@@ -75,8 +147,7 @@ DeckCardStoragePage::DeckCardStoragePage(QWidget* parent) : DeckPage(parent) {
     grid->setResizeMode(QListView::Adjust);
     grid->setMovement(QListView::Static);
     grid->setUniformItemSizes(true);
-    grid->setIconSize(QSize(kCellW, kCellH));
-    grid->setGridSize(QSize(kCellW + kSpacing, kCellH + kSpacing));
+    grid->setItemDelegate(new CardDelegate(grid));
     grid->setSelectionMode(QAbstractItemView::SingleSelection);
     grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
     grid->setFocusPolicy(Qt::NoFocus); // the shell drives navigation
@@ -202,8 +273,7 @@ void DeckCardStoragePage::Reload() {
         }
         auto* item = new QStandardItem(caption);
         if (!group.art.isNull()) {
-            item->setIcon(QIcon{group.art.scaled(kCellW, kCellW - 40, Qt::KeepAspectRatio,
-                                                 Qt::SmoothTransformation)});
+            item->setData(group.art, kArtRole);
         }
         item->setData(group.paths, kPathRole);
         item->setData(group.size, kSizeRole);
@@ -284,6 +354,7 @@ void DeckCardStoragePage::InsertSelected() {
     if (!index.isValid()) {
         return;
     }
+    const int row = index.row();
     const QStringList sources = model->itemFromIndex(index)->data(kPathRole).toStringList();
     if (sources.isEmpty()) {
         return;
@@ -303,7 +374,7 @@ void DeckCardStoragePage::InsertSelected() {
     emit HintsChanged();
 
     // Hundreds of megabytes of reading and writing; the shell has to keep drawing.
-    worker = QThread::create([this, sources] {
+    worker = QThread::create([this, sources, row] {
         bool ok = true;
         QString message;
         int part = 0;
@@ -319,14 +390,20 @@ void DeckCardStoragePage::InsertSelected() {
             if (ok) {
                 const int index_of = part;
                 const int count = static_cast<int>(sources.size());
-                ok = FileSys::ConvertNszToNsp(in, out, [this, index_of, count](u64 done, u64 total) {
+                ok = FileSys::ConvertNszToNsp(in, out, [this, index_of, count, row](u64 done,
+                                                                                    u64 total) {
                     if (total == 0) {
                         return;
                     }
                     const int percent = static_cast<int>(done * 100 / total);
                     QMetaObject::invokeMethod(
                         this,
-                        [this, percent, index_of, count] {
+                        [this, percent, index_of, count, row] {
+                            // Whole-card progress: each part is its own share of the way across.
+                            if (auto* item = model->item(row)) {
+                                item->setData((index_of - 1) * 100 / count + percent / count,
+                                              kProgressRole);
+                            }
                             status->setText(count > 1
                                                 ? tr("Putting the card in… %1%  (%2 of %3)")
                                                       .arg(percent)
@@ -359,6 +436,9 @@ void DeckCardStoragePage::InsertSelected() {
 
 void DeckCardStoragePage::OnFinished(bool ok, QString message) {
     busy = false;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        model->item(row)->setData(QVariant{}, kProgressRole);
+    }
     status->setText(message);
     if (ok) {
         Reload();
