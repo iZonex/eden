@@ -6,6 +6,8 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "common/common_types.h"
 #include "core/file_sys/vfs/vfs_types.h"
@@ -31,6 +33,18 @@ namespace FileSys {
 
 /// Whether the file is a PFS0 holding at least one NCZ -- an NSZ rather than a plain NSP.
 [[nodiscard]] bool IsNsz(const VirtualFile& file);
+
+/// What a compressed dump can say about itself without being unpacked. A packer leaves the small
+/// archives alone and only squeezes the program, so the control data -- the name and the icon the
+/// library shows -- is still readable in place.
+struct NszPresentation {
+    std::string title;
+    std::vector<u8> icon;
+};
+
+/// Reads the name and icon out of a dump without unpacking it. Empty fields where the dump keeps
+/// its control archive compressed too, or where the keys to open it are missing.
+[[nodiscard]] std::optional<NszPresentation> ReadNszPresentation(const VirtualFile& nsz);
 
 /// Rebuilds an NSZ as an ordinary NSP: entries that are NCZs are unpacked and renamed back to
 /// .nca, everything else is copied across untouched. `progress` is called with bytes written and
