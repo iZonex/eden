@@ -715,11 +715,15 @@ bool ApplySteamDeckDefaultsOnce() {
     Settings::values.scaling_filter.SetValue(Settings::ScalingFilter::Fsr);
     Settings::values.vsync_mode.SetValue(Settings::VSyncMode::Fifo);
     Settings::values.aspect_ratio.SetValue(Settings::AspectRatio::R16_9);
-    Settings::values.gpu_accuracy.SetValue(Settings::GpuAccuracy::Low);
+    // Graphics accuracy and asynchronous shaders are deliberately NOT set here any more.
+    // Low accuracy and the async-shader path both change what the screen shows -- the
+    // async path skips a draw whose shader is not compiled yet -- and applying them
+    // silently, once, from a first-run marker meant a rendering fault could be ours
+    // without anything in the config file saying so. Whatever the emulator's own
+    // defaults are is what a Deck gets; the user can still change both by hand.
     Settings::values.vram_usage_mode.SetValue(Settings::VramUsageMode::Conservative);
     Settings::values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Gpu);
     Settings::values.use_asynchronous_gpu_emulation.SetValue(true);
-    Settings::values.use_asynchronous_shaders.SetValue(true);
     Settings::values.use_disk_shader_cache.SetValue(true);
     Settings::values.use_vulkan_driver_pipeline_cache.SetValue(true);
     Settings::values.use_reactive_flushing.SetValue(true);
