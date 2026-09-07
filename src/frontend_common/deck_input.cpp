@@ -692,7 +692,7 @@ bool ApplySteamDeckDefaultsOnce() {
     // records that it ran, so the user's later tuning is preserved. Bump the suffix whenever the
     // optimal profile below changes, so it re-applies exactly once on existing installs.
     const auto marker =
-        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v2";
+        Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "deck_defaults_applied_v3";
     if (Common::FS::Exists(marker)) {
         return false;
     }
@@ -713,20 +713,49 @@ bool ApplySteamDeckDefaultsOnce() {
     Settings::values.renderer_backend.SetValue(Settings::RendererBackend::Vulkan);
     Settings::values.resolution_setup.SetValue(Settings::ResolutionSetup::Res1X);
     Settings::values.scaling_filter.SetValue(Settings::ScalingFilter::Fsr);
-    Settings::values.vsync_mode.SetValue(Settings::VSyncMode::Fifo);
+    // Mailbox, not Fifo. Fifo may only present on a divisor of the panel refresh, and the Deck
+    // panel runs at 90 Hz: a title that targets 60 and misses 90 is pinned to exactly 45, with the
+    // GPU idling at 1040 MHz and 6 W of a 15 W budget. Measured on Hades II: frame times sat dead
+    // flat at 45.4-47.2 fps until this was changed.
+    Settings::values.vsync_mode.SetValue(Settings::VSyncMode::Mailbox);
     Settings::values.aspect_ratio.SetValue(Settings::AspectRatio::R16_9);
-    // Graphics accuracy and asynchronous shaders are deliberately NOT set here any more.
-    // Low accuracy and the async-shader path both change what the screen shows -- the
-    // async path skips a draw whose shader is not compiled yet -- and applying them
-    // silently, once, from a first-run marker meant a rendering fault could be ours
-    // without anything in the config file saying so. Whatever the emulator's own
-    // defaults are is what a Deck gets; the user can still change both by hand.
-    Settings::values.vram_usage_mode.SetValue(Settings::VramUsageMode::Conservative);
+
+    // Extended dynamic state ON. With it disabled the pipeline state is baked statically, and on
+    // this driver the colour write mask bakes wrong for sprite draws: the draw happens, no colour
+    // is written, and the character is left as its own shadow -- a correct silhouette measuring
+    // (0,1,1) with its highlights still visible. This is not a preference, it is a correctness fix.
+    Settings::values.dyna_state.SetValue(Settings::ExtendedDynamicState::EDS2);
+
+    // Low GPU accuracy. Upstream moved this default from Medium to High and collapsed the enum, so
+    // the same number in an existing config quietly changed meaning. High synchronises the guest CPU
+    // against the GPU far more often, and on this hardware that is spent waiting, not working:
+    // measured 77.7% of frames on their 16.67 ms slot at High against 87.5% at Low, with the
+    // 33 ms stalls falling from 10.7% to 3.2%.
+    Settings::values.gpu_accuracy.SetValue(Settings::GpuAccuracy::Low);
+
+    // Asynchronous shaders stay OFF. It was measured on the same title and made things worse --
+    // on-time frames 87.5% -> 79.8% -- besides leaving objects undrawn until their shader is ready.
+    Settings::values.use_asynchronous_shaders.SetValue(false);
+
+    // Aggressive VRAM budget. On an integrated GPU this is a hard number in vulkan_device.cpp:
+    // 6 GiB for Aggressive against 4 GiB for Conservative. A Deck has 16 GB of unified memory, so
+    // the smaller budget buys nothing and makes the texture cache collect in bursts -- which is
+    // exactly what the frame times showed: clusters of 66.7 ms stalls while moving through new
+    // rooms, quiet in between.
+    Settings::values.vram_usage_mode.SetValue(Settings::VramUsageMode::Aggressive);
     Settings::values.nvdec_emulation.SetValue(Settings::NvdecEmulation::Gpu);
     Settings::values.use_asynchronous_gpu_emulation.SetValue(true);
     Settings::values.use_disk_shader_cache.SetValue(true);
     Settings::values.use_vulkan_driver_pipeline_cache.SetValue(true);
     Settings::values.use_reactive_flushing.SetValue(true);
+
+    // Say out loud what was just decided for the user. A silent one-shot profile is how a whole
+    // evening gets spent proving that a rendering fault is not in the renderer: the settings screen
+    // shows one thing, the profile did another, and nothing in the log connects the two.
+    LOG_INFO(Input,
+             "Steam Deck profile: vsync=Mailbox dyna_state=EDS2 gpu_accuracy=Low "
+             "vram_usage=Aggressive async_shaders=off resolution=1x filter=FSR -- each of these is "
+             "measured, and each can be changed by hand afterwards");
 
     // CPU — the host is x86-64, so Dynarmic (JIT) is the only valid backend (NCE is ARM-host only);
     // Auto accuracy picks the right per-title level; multicore on; 4 GB matches the real Switch.
