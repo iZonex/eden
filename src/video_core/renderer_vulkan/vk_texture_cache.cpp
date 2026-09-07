@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <array>
 #include <optional>
@@ -1923,7 +1924,16 @@ Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu
     // on AMD that includes the depth metadata the hardware tests against, which is why geometry
     // showed through walls on the Deck and never on the Mac, where no such metadata exists.
     // TransitionImageLayout was written for this and simply never wired up.
-    runtime->TransitionImageLayout(*this);
+    // Bisect knob: this transition is the prime suspect for Hades II drawing its characters as
+    // black silhouettes on the Deck while stock Eden draws them correctly. The comment above says
+    // only images nothing ever uploads need it, but this applies it to every image, and it also
+    // forces the current render pass to end (RequestOutsideRenderPassOperationContext) on every
+    // image creation. EDEN_NO_CTOR_IMAGE_TRANSITION=1 takes the upstream path instead.
+    static const bool skip_ctor_transition =
+        std::getenv("EDEN_NO_CTOR_IMAGE_TRANSITION") != nullptr;
+    if (!skip_ctor_transition) {
+        runtime->TransitionImageLayout(*this);
+    }
     storage_image_views.resize(info.resources.levels);
     if (WillUseAcceleratedAstcDecode(runtime->device, info)) {
         const auto& device = runtime->device.GetLogical();
