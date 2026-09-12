@@ -931,9 +931,16 @@ Result IHidServer::GetActualVibrationValue(Out<Core::HID::VibrationValue> out_vi
         R_SUCCEED();
     }
 
-    R_TRY(IsVibrationHandleValid(vibration_device_handle));
+    // An unusable handle reads as "not rumbling", the same answer the two branches below already
+    // give for a missing device or a failed read, and the same one the inactive-aruid branch above
+    // gives. It used to be the one strict line in an otherwise forgiving function, which is the
+    // trap that killed Hades II through SendVibrationValues: activation is allowed to report
+    // success without a device behind it, so a title can legitimately be holding a handle we call
+    // invalid, and answering that with an error aborts the process.
     NpadVibrationDevice* device =
-        GetResourceManager()->GetNSVibrationDevice(vibration_device_handle);
+        IsVibrationHandleValid(vibration_device_handle).IsSuccess()
+            ? GetResourceManager()->GetNSVibrationDevice(vibration_device_handle)
+            : nullptr;
 
     if (device == nullptr || R_FAILED(device->GetActualVibrationValue(*out_vibration_value))) {
         *out_vibration_value = Core::HID::DEFAULT_VIBRATION_VALUE;
@@ -977,8 +984,19 @@ Result IHidServer::SendVibrationValues(
     R_UNLESS(vibration_handles.size() == vibration_values.size(), ResultVibrationArraySizeMismatch);
 
     for (std::size_t i = 0; i < vibration_handles.size(); i++) {
-        R_TRY(GetResourceManager()->SendVibrationValue(aruid.pid, vibration_handles[i],
-                                                       vibration_values[i]));
+        // Deliberately not R_TRY: a rumble that cannot be delivered is dropped, never fatal. The
+        // single-handle SendVibrationValue above already discards its result for this reason, and
+        // the two must agree -- a game has no way to know which of them it happened to call.
+        //
+        // What the mismatch cost: ActivateVibrationDevice reports success even when no device backs
+        // the handle (it has to, or titles that rumble a pad they never configured abort instead).
+        // The device's ref_counter therefore stays 0, the next SendVibrationValue answers
+        // ResultVibrationNotInitialized, and this loop handed that straight back to the guest. The
+        // Switch SDK aborts the process on an unexpected result, so Hades II killed itself with
+        // 2162-0001 a few frames after its first rumble -- traced from the log, where the two
+        // SendVibrationValues calls sit immediately before the userspace panic.
+        GetResourceManager()->SendVibrationValue(aruid.pid, vibration_handles[i],
+                                                 vibration_values[i]);
     }
 
     R_SUCCEED();
