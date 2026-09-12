@@ -833,7 +833,20 @@ void MainWindow::ControllerSelectorAutoConfigure(
         Settings::values.use_docked_mode.SetValue(Settings::ConsoleMode::Docked);
         OnDockedModeChanged(false, true, *QtCommon::system);
     }
-    if (handheld != nullptr && handheld->IsConnected()) {
+    // Only take the Handheld npad away from a game that does not accept it. Hades II does accept it
+    // -- allow_handheld=true, and its supported style set is 7, which includes Handheld -- so the
+    // emulator connects that npad on the game's behalf, and disconnecting it here started a fight
+    // neither side can win: the game sees its controller set change, opens this applet again, we
+    // disconnect again. Measured at one Handheld connect per applet round, and after about ten
+    // rounds the title gives up and aborts itself (terminate result 2162-0001, userspace panic),
+    // which is the crash this is fixing.
+    //
+    // Leaving it connected costs nothing here. It is the same physical pad as Player 1 and carries
+    // the same mapping, so the console shell -- which ORs the button state of every connected
+    // controller -- sees one press as one press, and a single-player title still reads Player 1,
+    // the npad this applet reports as selected.
+    const bool game_accepts_handheld = parameters.allow_handheld;
+    if (handheld != nullptr && handheld->IsConnected() && !game_accepts_handheld) {
         handheld->Disconnect();
     }
     auto& players = Settings::values.players.GetValue();
